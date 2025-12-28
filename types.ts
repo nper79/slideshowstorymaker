@@ -74,7 +74,16 @@ export interface StorySegment {
   // This stores the granular raw data
   structuredScene?: StructuredScene;
 
-  generatedImageUrl?: string;
+  // GRID SYSTEM UPDATES
+  masterGridImageUrl?: string; // The raw 3x3 grid image returned by AI
+  selectedGridIndex?: number; // 0-8 (Which cell was chosen)
+  
+  // The 9 distinct prompts for the contact sheet
+  gridVariations?: string[]; 
+
+  // Legacy/Computed convenience field (returns the CROPPED selection)
+  generatedImageUrl?: string; 
+  
   isGenerating?: boolean;
 }
 

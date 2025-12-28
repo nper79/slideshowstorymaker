@@ -14,28 +14,42 @@ export const exportProject = async (storyData: StoryData) => {
   
   // Process Characters
   dataToSave.characters.forEach((char: Character) => {
-    if (char.imageUrl) {
+    if (char.imageUrl && char.imageUrl.startsWith('data:')) {
       const fileName = `char_${char.id}.png`;
       assetsFolder?.file(fileName, getBase64Data(char.imageUrl), { base64: true });
-      char.imageUrl = `assets/${fileName}`; // Replace base64 with relative path for JSON
+      char.imageUrl = `assets/${fileName}`;
     }
   });
 
   // Process Settings
   dataToSave.settings.forEach((setting: Setting) => {
-    if (setting.imageUrl) {
+    if (setting.imageUrl && setting.imageUrl.startsWith('data:')) {
       const fileName = `setting_${setting.id}.png`;
       assetsFolder?.file(fileName, getBase64Data(setting.imageUrl), { base64: true });
       setting.imageUrl = `assets/${fileName}`;
     }
   });
 
-  // Process Segments
-  dataToSave.segments.forEach((segment: StorySegment) => {
-    if (segment.generatedImageUrl) {
-      const fileName = `segment_${segment.id}.png`;
+  // Process Segments (Updated for Grid System)
+  // Cast to any to handle legacy property cleanup
+  dataToSave.segments.forEach((segment: any) => {
+    // 1. Save the selected/cropped final image
+    if (segment.generatedImageUrl && segment.generatedImageUrl.startsWith('data:')) {
+      const fileName = `segment_${segment.id}_final.png`;
       assetsFolder?.file(fileName, getBase64Data(segment.generatedImageUrl), { base64: true });
       segment.generatedImageUrl = `assets/${fileName}`;
+    }
+    
+    // 2. Save the MASTER GRID image
+    if (segment.masterGridImageUrl && segment.masterGridImageUrl.startsWith('data:')) {
+      const fileName = `segment_${segment.id}_master_grid.png`;
+      assetsFolder?.file(fileName, getBase64Data(segment.masterGridImageUrl), { base64: true });
+      segment.masterGridImageUrl = `assets/${fileName}`;
+    }
+    
+    // Clean up old fields
+    if (segment.imageOptions) {
+      delete segment.imageOptions;
     }
   });
 
@@ -78,7 +92,10 @@ export const importProject = async (file: File): Promise<StoryData> => {
   }));
 
   await Promise.all(storyData.segments.map(async (s: any) => {
+    // Restore cropped final
     if (s.generatedImageUrl) s.generatedImageUrl = await reconstructImage(s.generatedImageUrl);
+    // Restore master grid
+    if (s.masterGridImageUrl) s.masterGridImageUrl = await reconstructImage(s.masterGridImageUrl);
   }));
 
   return storyData as StoryData;

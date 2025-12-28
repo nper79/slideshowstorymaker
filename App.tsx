@@ -6,6 +6,7 @@ import Storyboard from './components/Storyboard';
 import { StoryData, ProcessingStatus, AspectRatio, ImageSize } from './types';
 import * as GeminiService from './services/geminiService';
 import * as StorageService from './services/storageService';
+import { cropGridCell } from './utils/imageUtils';
 
 enum Tab {
   INPUT = 'input',
@@ -65,7 +66,6 @@ export default function App() {
     if (aistudio) {
       try {
         await aistudio.openSelectKey();
-        // Assuming success as per instructions to mitigate race condition
         setHasApiKey(true);
       } catch (e) {
         console.error("Error selecting API key:", e);
@@ -83,8 +83,6 @@ export default function App() {
     } catch (error: any) {
       console.error(error);
       setStatus(ProcessingStatus.ERROR);
-      
-      // If permission denied, reset key state to force re-selection
       if (error.toString().includes("403") || error.toString().includes("PERMISSION_DENIED")) {
          alert("Permission Denied. Please ensure you select a Paid API Key with access to Gemini 3 models.");
          setHasApiKey(false);
@@ -94,178 +92,154 @@ export default function App() {
     }
   };
 
+  // ... (Asset generation functions remain same) ...
   const handleGenerateCharacter = async (id: string) => {
     if (!storyData) return;
-    
-    setStoryData(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: true } : c)
-      };
-    });
+    setStoryData(prev => prev ? ({
+        ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: true } : c)
+    }) : null);
 
     try {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
+      // Updated prompt for Character Sheet: White background, Front/Back view
+      const prompt = `Character Sheet Concept Art. Full Body. Front View and Back View side-by-side. Solid White Background. High detail. Character Name: ${char.name}. Description: ${char.description}. Visual Notes: ${char.visualPrompt}.`;
       
-      // CRITICAL: Force full body shot from head to toe to catch pants/shoes details
-      const prompt = `
-        Full Body Wide Shot. 
-        Camera must capture the character from Head to Toe.
-        Feet and shoes MUST be visible.
-        Pants/Legs MUST be visible.
-        Character is standing in a neutral lighting studio environment.
-        
-        Character Name: ${char.name}. 
-        Description: ${char.description}. 
-        Visual Notes: ${char.visualPrompt}.
-      `;
-      
-      // Pass the global style guide to ensure character fits the world
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.PORTRAIT, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA);
+      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.PORTRAIT, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false); // False = No Grid
 
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c)
-        };
-      });
+      setStoryData(prev => prev ? ({
+        ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c)
+      }) : null);
     } catch (e) {
       console.error(e);
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: false } : c)
-        };
-      });
+      setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: false } : c) }) : null);
     }
   };
 
   const handleGenerateSetting = async (id: string) => {
     if (!storyData) return;
-    
-    setStoryData(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: true } : s)
-      };
-    });
+    setStoryData(prev => prev ? ({
+        ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: true } : s)
+    }) : null);
 
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
+      // Updated prompt for Settings: Aerial Architecture View
+      const prompt = `Aerial view. Architecture view of location. Top-down plan. Setting: ${setting.name}. Description: ${setting.description}. ${setting.visualPrompt}.`;
       
-      const prompt = `Direct top-down overhead camera view (Architecture Plan View). Setting: ${setting.name}. Description: ${setting.description}. ${setting.visualPrompt}.`;
-      
-      // Pass the global style guide
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.LANDSCAPE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA);
+      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.LANDSCAPE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false); // False = No Grid
 
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s)
-        };
-      });
+      setStoryData(prev => prev ? ({
+        ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s)
+      }) : null);
     } catch (e) {
       console.error(e);
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s)
-        };
-      });
+      setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
     }
   };
 
   const handleGenerateScene = async (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => {
     if (!storyData) return;
 
-    setStoryData(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
-      };
-    });
+    setStoryData(prev => prev ? ({
+      ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
+    }) : null);
 
     try {
       const segment = storyData.segments.find(s => s.id === segmentId);
       if (!segment) throw new Error("Segment not found");
 
-      // Gather references with strict ordering for consistency
       const refImages: string[] = [];
-
-      // 1. Character Reference (Primary Master for Clothing)
       segment.characterIds.forEach(charId => {
         const char = storyData.characters.find(c => c.id === charId);
         if (char?.imageUrl) refImages.push(char.imageUrl);
       });
-      
-      // 2. Setting Reference
       const setting = storyData.settings.find(s => s.id === segment.settingId);
       if (setting?.imageUrl) refImages.push(setting.imageUrl);
-
-      // 3. Previous Scene Reference (Consistency Continuity)
-      const currentIndex = storyData.segments.findIndex(s => s.id === segmentId);
-      if (currentIndex > 0) {
-        const prevSegment = storyData.segments[currentIndex - 1];
-        if (prevSegment.generatedImageUrl) {
-           refImages.push(prevSegment.generatedImageUrl);
-        }
-      }
-
-      // Include temporal details in the prompt
+      
+      // Prompt construction
       const prompt = `
-        Time of Day: ${segment.timeOfDay} (Reasoning: ${segment.temporalLogic}). 
+        Time of Day: ${segment.timeOfDay}. 
         Key Visual Action: ${segment.keyVisualAction}.
         Scene Details: ${segment.scenePrompt}
         Setting: ${setting?.name || 'Unknown'}, in the ${segment.quadrant}.
         Characters present: ${segment.characterIds.map(id => storyData.characters.find(c => c.id === id)?.name).join(', ')}.
       `;
 
-      // Pass the visualStyleGuide AND cinematicDNA
-      const imageUrl = await GeminiService.generateImage(prompt, options.aspectRatio, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA);
+      // GENERATE A 3x3 GRID (TRUE passed as last arg)
+      // Pass the specific variations generated during analysis
+      const masterGridUrl = await GeminiService.generateImage(
+        prompt, 
+        options.aspectRatio, 
+        options.imageSize, 
+        refImages, 
+        storyData.visualStyleGuide, 
+        storyData.cinematicDNA, 
+        true, // Use Grid Mode
+        segment.gridVariations // The 9 distinct prompts
+      );
 
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          segments: prev.segments.map(s => s.id === segmentId ? { ...s, generatedImageUrl: imageUrl, isGenerating: false } : s)
-        };
-      });
+      // Automatically select the center image (Index 4) as default
+      const defaultIndex = 4;
+      const croppedImage = await cropGridCell(masterGridUrl, defaultIndex);
+
+      setStoryData(prev => prev ? ({
+        ...prev,
+        segments: prev.segments.map(s => s.id === segmentId ? { 
+            ...s, 
+            masterGridImageUrl: masterGridUrl, // Store the big sheet
+            selectedGridIndex: defaultIndex,
+            generatedImageUrl: croppedImage, // Store the cropped result
+            isGenerating: false 
+        } : s)
+      }) : null);
 
     } catch (e: any) {
        console.error(e);
-       if (e.toString().includes("403") || e.toString().includes("PERMISSION_DENIED")) {
-         alert("Permission Denied. Your session may have expired or the key lacks permission.");
+       if (e.toString().includes("403")) {
+         alert("Permission Denied.");
          setHasApiKey(false);
        }
-       setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-        };
-      });
+       setStoryData(prev => prev ? ({
+          ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
+       }) : null);
+    }
+  };
+
+  const handleSelectOption = async (segmentId: string, optionIndex: number) => {
+    if (!storyData) return;
+    
+    // Find segment to get master image
+    const segment = storyData.segments.find(s => s.id === segmentId);
+    if (!segment || !segment.masterGridImageUrl) return;
+
+    try {
+        // Crop the new selection
+        const croppedImage = await cropGridCell(segment.masterGridImageUrl, optionIndex);
+
+        setStoryData(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                segments: prev.segments.map(s => s.id === segmentId ? {
+                    ...s,
+                    selectedGridIndex: optionIndex,
+                    generatedImageUrl: croppedImage
+                } : s)
+            };
+        });
+    } catch (e) {
+        console.error("Failed to crop grid cell", e);
     }
   };
 
   const handleEditImage = async (segmentId: string, instruction: string) => {
     if (!storyData) return;
 
-     setStoryData(prev => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
-      };
-    });
+     setStoryData(prev => prev ? ({
+        ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
+     }) : null);
 
     try {
       const segment = storyData.segments.find(s => s.id === segmentId);
@@ -273,28 +247,24 @@ export default function App() {
 
       const newImageUrl = await GeminiService.editImage(segment.generatedImageUrl, instruction);
       
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
+      setStoryData(prev => prev ? ({
           ...prev,
-          segments: prev.segments.map(s => s.id === segmentId ? { ...s, generatedImageUrl: newImageUrl, isGenerating: false } : s)
-        };
-      });
+          segments: prev.segments.map(s => s.id === segmentId ? { 
+             ...s, 
+             generatedImageUrl: newImageUrl, 
+             isGenerating: false 
+          } : s)
+      }) : null);
 
     } catch(e) {
       console.error(e);
-      setStoryData(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-        };
-      });
+      setStoryData(prev => prev ? ({
+          ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
+      }) : null);
     }
   };
 
   const handlePlayAudio = async (text: string): Promise<void> => {
-      // Use the currently selected voice from state
       const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
       await GeminiService.playAudio(audioBuffer);
   };
@@ -308,7 +278,6 @@ export default function App() {
     try {
       await StorageService.exportProject(storyData);
     } catch (e) {
-      console.error("Export failed", e);
       alert("Failed to export project.");
     }
   };
@@ -320,15 +289,13 @@ export default function App() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     try {
       const data = await StorageService.importProject(file);
       setStoryData(data);
       setStatus(ProcessingStatus.READY);
-      setActiveTab(Tab.STORYBOARD); // Go straight to storyboard on load
+      setActiveTab(Tab.STORYBOARD);
     } catch (e) {
-      console.error("Import failed", e);
-      alert("Failed to import project. Please ensure it is a valid zip file.");
+      alert("Failed to import project.");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -346,20 +313,10 @@ export default function App() {
             StoryBoard AI uses advanced Gemini models (Gemini 3 Pro & Imagen). 
             Please select a <strong>paid API key</strong> to continue.
           </p>
-          
-          <button 
-            onClick={handleSelectKey}
-            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg mb-6"
-          >
+          <button onClick={handleSelectKey} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg mb-6">
             Select API Key
           </button>
-
-          <a 
-            href="https://ai.google.dev/gemini-api/docs/billing" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-sm text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1"
-          >
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1">
             Learn about Gemini API billing <ExternalLink className="w-3 h-3" />
           </a>
         </div>
@@ -369,7 +326,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 relative z-50">
-      {/* Navbar */}
       <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -379,57 +335,23 @@ export default function App() {
                 StoryBoard AI
               </span>
             </div>
-            
             <div className="flex items-center gap-4">
-               {/* Export / Import Controls */}
                <div className="hidden md:flex gap-2">
-                 <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept=".zip" 
-                    onChange={handleFileChange}
-                 />
-                 <button 
-                   onClick={handleImportClick}
-                   className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700"
-                   title="Import Project"
-                 >
+                 <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
+                 <button onClick={handleImportClick} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700">
                    <Upload className="w-4 h-4" /> Import
                  </button>
                  {storyData && (
-                   <button 
-                     onClick={handleExport}
-                     className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700"
-                     title="Export Project & Assets"
-                   >
+                   <button onClick={handleExport} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700">
                      <Download className="w-4 h-4" /> Export
                    </button>
                  )}
                </div>
-
               {storyData && (
                 <div className="flex bg-slate-800 rounded-lg p-1">
-                  <button
-                    onClick={() => setActiveTab(Tab.INPUT)}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Story
-                  </button>
-                   <button
-                    onClick={() => setActiveTab(Tab.ASSETS)}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Assets
-                    <span className="bg-slate-900/50 px-1.5 rounded text-xs">{storyData.characters.length + storyData.settings.length}</span>
-                  </button>
-                   <button
-                    onClick={() => setActiveTab(Tab.STORYBOARD)}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Storyboard
-                    <span className="bg-slate-900/50 px-1.5 rounded text-xs">{storyData.segments.length}</span>
-                  </button>
+                  <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Story</button>
+                   <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Assets</button>
+                   <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Storyboard</button>
                 </div>
               )}
             </div>
@@ -437,49 +359,24 @@ export default function App() {
         </div>
       </nav>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === Tab.INPUT && (
           <div className="animate-fade-in">
-             <StoryInput 
-                onAnalyze={handleAnalyzeStory} 
-                status={status} 
-                selectedVoice={selectedVoice}
-                onVoiceChange={setSelectedVoice}
-             />
+             <StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} />
              {storyData && (
                 <div className="mt-8 flex justify-center">
-                   <button 
-                    onClick={() => setActiveTab(Tab.ASSETS)}
-                    className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 font-semibold"
-                   >
+                   <button onClick={() => setActiveTab(Tab.ASSETS)} className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 font-semibold">
                      Continue to Assets <ChevronRight className="w-4 h-4" />
                    </button>
                 </div>
              )}
           </div>
         )}
-
         {activeTab === Tab.ASSETS && storyData && (
            <div className="animate-fade-in">
-              <div className="mb-8 p-4 bg-indigo-900/20 border border-indigo-500/30 rounded-lg">
-                <h3 className="text-indigo-300 font-bold mb-2 flex items-center gap-2">
-                  <Layers className="w-4 h-4" /> 
-                  Pre-production Phase
-                </h3>
-                <p className="text-sm text-indigo-200/80">
-                  Generate visual references for your characters and settings first. These images will be fed into the Nano Banana Pro model to ensure consistency when generating the final scenes.
-                </p>
-              </div>
-              <AssetGallery 
-                characters={storyData.characters}
-                settings={storyData.settings}
-                onGenerateCharacter={handleGenerateCharacter}
-                onGenerateSetting={handleGenerateSetting}
-              />
+              <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />
            </div>
         )}
-
         {activeTab === Tab.STORYBOARD && storyData && (
           <div className="animate-fade-in">
              <Storyboard 
@@ -490,6 +387,7 @@ export default function App() {
                onEditImage={handleEditImage}
                onPlayAudio={handlePlayAudio}
                onStopAudio={handleStopAudio}
+               onSelectOption={handleSelectOption}
              />
           </div>
         )}

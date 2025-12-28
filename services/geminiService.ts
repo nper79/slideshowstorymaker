@@ -5,7 +5,7 @@ const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const MODEL_TEXT_ANALYSIS = 'gemini-3-pro-preview'; 
 const MODEL_IMAGE_GEN = 'gemini-3-pro-image-preview'; 
-const MODEL_IMAGE_GEN_FALLBACK = 'gemini-2.5-flash-image'; // Fallback model
+const MODEL_IMAGE_GEN_FALLBACK = 'gemini-2.5-flash-image'; 
 const MODEL_IMAGE_EDIT = 'gemini-3-pro-image-preview'; 
 const MODEL_TTS = 'gemini-2.5-flash-preview-tts';
 
@@ -16,10 +16,6 @@ export const VOICES = [
   { name: 'Fenrir', gender: 'Male', style: 'Intense & Resonant' },
   { name: 'Zephyr', gender: 'Female', style: 'Bright & Energetic' },
 ];
-
-// ============================================
-// AUDIO CONTROL
-// ============================================
 
 let currentSource: AudioBufferSourceNode | null = null;
 let audioContext: AudioContext | null = null;
@@ -36,39 +32,15 @@ export const stopAudio = () => {
   }
 };
 
-// ============================================
-// LOGIC & INFERENCE ENGINE
-// ============================================
-
 const CONTEXT_RULES = `
 ## THE "NO VACUUM" RULE (CONTEXT INFERENCE)
 You are forbidden from generating generic, empty scenes. You must logically INFER the environment based on the narrative context.
-
-**Examples of Logical Inference:**
-- *Text:* "I went to work." 
-  -> *Inference:* It is morning. There is traffic. There are other pedestrians. The sun is low. There is coffee steam.
-- *Text:* "I heard a noise in the alley." 
-  -> *Inference:* It is dirty. There are trash bags. There are stray cats. There is graffiti. Puddles reflect the weak light.
-- *Text:* "I sat on the couch."
-  -> *Inference:* Is the TV on? Is there a remote? Are there snacks? Is the room messy or clean? 
-
-## MASTERPIECE JSON STRUCTURE
-You must break down every single frame into granular details. Do not write paragraphs. Write data.
 `;
 
 const PRESERVATION_RULES = `
 ## THE "ZERO DATA LOSS" PROTOCOL (CRITICAL)
 1. **VERBATIM TEXT**: The \`text\` field of every segment MUST be an EXACT copy-paste of the original sentences.
-   - ❌ BAD: "She went to work." (Summarized)
-   - ✅ GOOD: "Every morning, I usually walk to work because it’s less than two kilometers from the place I rent." (Exact)
-2. **NO SKIPPING**: You must include every single sentence. Do not skip the "boring" parts.
-3. **GRANULARITY**: Break the text every 2-4 sentences.
-4. **INTEGRITY CHECK**: If I join all your \`text\` fields together, it MUST match the original story exactly.
 `;
-
-// ============================================
-// IMPROVED STORY ANALYSIS
-// ============================================
 
 export const analyzeStoryText = async (storyText: string, artStyle: string): Promise<StoryData> => {
   const ai = getAi();
@@ -77,7 +49,6 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
     type: Type.OBJECT,
     properties: {
       title: { type: Type.STRING },
-      
       cinematicDNA: {
         type: Type.OBJECT,
         properties: {
@@ -89,9 +60,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
         },
         required: ["cameraSystem", "colorPalette", "lightingPhilosophy", "filmStock", "visualMood"]
       },
-      
       visualStyleGuide: { type: Type.STRING },
-      
       characters: {
         type: Type.ARRAY,
         items: {
@@ -106,7 +75,6 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           required: ["id", "name", "description", "photographicDescription", "visualPrompt"]
         }
       },
-      
       settings: {
         type: Type.ARRAY,
         items: {
@@ -121,17 +89,13 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           required: ["id", "name", "description", "floorPlan", "visualPrompt"]
         }
       },
-      
       segments: {
         type: Type.ARRAY,
         items: {
           type: Type.OBJECT,
           properties: {
             id: { type: Type.STRING },
-            text: { 
-              type: Type.STRING,
-              description: "CRITICAL: The EXACT, VERBATIM sentences from the source text. DO NOT EDIT. DO NOT SUMMARIZE." 
-            },
+            text: { type: Type.STRING },
             settingId: { type: Type.STRING },
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
             quadrant: { type: Type.STRING },
@@ -139,20 +103,23 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             timeOfDay: { type: Type.STRING },
             keyVisualAction: { type: Type.STRING },
             
-            // THE NEW MASTERPIECE STRUCTURE
+            // GRID VARIATIONS FOR CONTACT SHEET
+            gridVariations: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Generate 9 DISTINCT visual interpretations of the scene. Do NOT just change the camera angle. You MUST change the ACTION, the MOMENT, or the INTERACTION. Example: If text is 'She is at home', Panel 1: Sleeping in bed, Panel 2: Eating breakfast, Panel 3: Reading on couch. Each panel must be a valid interpretation of the text segment."
+            },
+
             structuredScene: {
               type: Type.OBJECT,
               properties: {
-                contextual_inference: { 
-                  type: Type.STRING,
-                  description: "EXPLAIN WHY you added details. E.g., 'Since she is rushing, I added motion blur and disheveled hair.'"
-                },
+                contextual_inference: { type: Type.STRING },
                 subject_details: {
                   type: Type.OBJECT,
                   properties: {
-                    appearance: { type: Type.STRING, description: "Hair style, texture, skin details, sweat, imperfections." },
-                    clothing: { type: Type.STRING, description: "Fabric texture, specific garments, fit, wear and tear." },
-                    expression: { type: Type.STRING, description: "Micro-expression, eye focus, lip tension." }
+                    appearance: { type: Type.STRING },
+                    clothing: { type: Type.STRING },
+                    expression: { type: Type.STRING }
                   },
                   required: ["appearance", "clothing", "expression"]
                 },
@@ -160,17 +127,9 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
                   type: Type.OBJECT,
                   properties: {
                     setting: { type: Type.STRING },
-                    background_elements: { 
-                      type: Type.ARRAY, 
-                      items: { type: Type.STRING },
-                      description: "List 4-5 specific objects creating depth (e.g. 'flickering neon sign', 'overflowing dumpster')."
-                    },
-                    foreground_elements: { 
-                      type: Type.ARRAY, 
-                      items: { type: Type.STRING },
-                      description: "List 2-3 objects close to camera (e.g. 'rain drops on lens', 'blurry fence')."
-                    },
-                    weather_and_atmosphere: { type: Type.STRING, description: "Fog, rain, dust, steam, heat haze." }
+                    background_elements: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    foreground_elements: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    weather_and_atmosphere: { type: Type.STRING }
                   },
                   required: ["setting", "background_elements", "foreground_elements", "weather_and_atmosphere"]
                 },
@@ -179,7 +138,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
                   properties: {
                     primary_source: { type: Type.STRING },
                     color_palette: { type: Type.STRING },
-                    shadows: { type: Type.STRING, description: "Hard, soft, long, nonexistent?" }
+                    shadows: { type: Type.STRING }
                   },
                   required: ["primary_source", "color_palette", "shadows"]
                 },
@@ -188,7 +147,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
                   properties: {
                     shot_type: { type: Type.STRING },
                     angle: { type: Type.STRING },
-                    lens_characteristics: { type: Type.STRING, description: "Bokeh, distortion, sharpness, chromatic aberration." }
+                    lens_characteristics: { type: Type.STRING }
                   },
                   required: ["shot_type", "angle", "lens_characteristics"]
                 }
@@ -196,7 +155,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
               required: ["contextual_inference", "subject_details", "environment", "lighting", "camera"]
             }
           },
-          required: ["id", "text", "settingId", "characterIds", "quadrant", "temporalLogic", "timeOfDay", "keyVisualAction", "structuredScene"]
+          required: ["id", "text", "settingId", "characterIds", "quadrant", "temporalLogic", "timeOfDay", "keyVisualAction", "structuredScene", "gridVariations"]
         }
       }
     },
@@ -208,21 +167,18 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
     contents: `
 ${PRESERVATION_RULES}
 ${CONTEXT_RULES}
-
 # YOUR MISSION
-You are a **Forensic Text Segmenter** and **Visual Director**.
-1. **SEGMENT**: Slice the story text into chunks of 3-4 sentences. STRICTLY VERBATIM.
-2. **VISUALIZE**: For each chunk, create the high-fidelity \`structuredScene\` JSON.
-
-# CRITICAL INSTRUCTION
-Do NOT summarize the story.
-Do NOT "fix" the text.
-Do NOT skip sentences.
-You are a photocopier for the text, and a painter for the metadata.
+You are a **Forensic Text Segmenter** and **Creative Visual Director**.
+1. **SEGMENT**: Slice the story text into chunks.
+2. **VISUALIZE**: Create the \`structuredScene\`.
+3. **DIRECT (GRID)**: Create \`gridVariations\` (9 Panels).
+   - **MANDATE**: You are brainstorming 9 different ways to visualize this segment.
+   - **VARIETY**: Explore different ACTIONS and MOMENTS within the context of the text.
+   - **EXAMPLE**: If text is "He waited in the lobby", do NOT just show 9 angles of him sitting. Show: 1. Checking watch. 2. Pacing. 3. Drinking coffee. 4. Looking out window. 5. Sleeping...
+   - **FORMAT**: "Panel [1-9]: [Specific Action] in [Setting]. [Camera Detail]."
 
 ## STORY:
 ${storyText}
-
 ## STYLE:
 ${artStyle}
     `,
@@ -230,10 +186,9 @@ ${artStyle}
       responseMimeType: "application/json",
       responseSchema: schema,
       thinkingConfig: { thinkingBudget: 16384 },
-      // Strict system instruction to enforce verbatim copy
       systemInstruction: `You are an automated transcription and visualization engine. 
-      RULE 1: The 'text' property in the output MUST match the input text EXACTLY, chunk by chunk. 
-      RULE 2: Use the Context Inference engine to fill in visual details that are implied but not stated. 
+      RULE 1: The 'text' property in the output MUST match the input text EXACTLY. 
+      RULE 2: For 'gridVariations', generate 9 DISTINCT scenarios/actions that fit the text. Do not repeat the same pose 9 times.
       Style: ${artStyle}`
     }
   });
@@ -241,8 +196,12 @@ ${artStyle}
   if (!response.text) throw new Error("No response from AI");
   const data = JSON.parse(response.text);
 
-  // POST-PROCESSING: Compile the JSON back into a Rich Text Prompt for the Image Generator
   data.segments = data.segments.map((seg: any) => {
+     // Safety: Map legacy snake_case to camelCase if returned
+     if (seg.grid_variations && !seg.gridVariations) {
+        seg.gridVariations = seg.grid_variations;
+     }
+
      if (seg.structuredScene) {
         const s = seg.structuredScene;
         const compiledPrompt = `
@@ -273,7 +232,7 @@ ${s.contextual_inference}
 };
 
 // ============================================
-// IMPROVED IMAGE GENERATION
+// IMPROVED IMAGE GENERATION (GRID MODE WITH MULTI-PROMPT)
 // ============================================
 
 export const generateImage = async (
@@ -282,13 +241,27 @@ export const generateImage = async (
   imageSize: ImageSize = ImageSize.K1,
   refImages?: string[],
   globalStyle?: string,
-  cinematicDNA?: any
+  cinematicDNA?: any,
+  useGridMode: boolean = false,
+  gridVariations?: string[] // ARRAY OF 9 PROMPTS
 ): Promise<string> => {
   const ai = getAi();
   
   let safeAspectRatio = aspectRatio;
   if (aspectRatio === AspectRatio.CINEMATIC) {
       safeAspectRatio = AspectRatio.WIDE;
+  }
+
+  // Determine the shape description for the prompt based on the requested aspect ratio
+  let panelShapeDescription = "Square (1:1)";
+  if (aspectRatio === AspectRatio.MOBILE) {
+      panelShapeDescription = "Vertical Portrait (9:16)";
+  } else if (aspectRatio === AspectRatio.WIDE || aspectRatio === AspectRatio.CINEMATIC) {
+      panelShapeDescription = "Widescreen (16:9)";
+  } else if (aspectRatio === AspectRatio.PORTRAIT) {
+      panelShapeDescription = "Vertical (3:4)";
+  } else if (aspectRatio === AspectRatio.LANDSCAPE) {
+      panelShapeDescription = "Landscape (4:3)";
   }
 
   const dnaPrompt = cinematicDNA ? `
@@ -298,26 +271,75 @@ export const generateImage = async (
     Mood: ${cinematicDNA.visualMood}
   ` : '';
 
-  // The 'prompt' passed here is now the High-Density compiled string from analyzeStoryText
+  let gridInstructions = "";
+  let panelPrompts = "";
+
+  if (useGridMode) {
+      gridInstructions = `
+      **STRICT 3x3 GRID LAYOUT INSTRUCTION:**
+      - Generate a SINGLE image divided exactly into a 3x3 grid (9 equal rectangles).
+      - **GEOMETRY**: All 9 rectangles must have exactly the same width and height.
+      - **PANEL ASPECT RATIO**: Each individual grid cell must be **${panelShapeDescription}**. Do not distort the aspect ratio.
+      - **CONTENT**: This is a VARIATION BOARD for the scene.
+      - **CONSISTENCY**: The CHARACTER IDENTITY (Face, Clothes, Body) and general SETTING must remain consistent.
+      - **VARIATION**: The ACTION, POSE, and INTERACTION must change in every panel as described below.
+      `;
+
+      if (gridVariations && gridVariations.length > 0) {
+         // Construct the per-panel instructions mapped to grid positions
+         panelPrompts = `
+         **PANEL EXECUTION PLAN (9 DISTINCT ACTIONS):**
+         
+         [ROW 1 - TOP]
+         - Top-Left (Panel 1): ${gridVariations[0]}
+         - Top-Center (Panel 2): ${gridVariations[1]}
+         - Top-Right (Panel 3): ${gridVariations[2]}
+
+         [ROW 2 - MIDDLE]
+         - Mid-Left (Panel 4): ${gridVariations[3]}
+         - Center (Panel 5): ${gridVariations[4]}
+         - Mid-Right (Panel 6): ${gridVariations[5]}
+
+         [ROW 3 - BOTTOM]
+         - Bottom-Left (Panel 7): ${gridVariations[6]}
+         - Bottom-Center (Panel 8): ${gridVariations[7]}
+         - Bottom-Right (Panel 9): ${gridVariations[8]}
+         `;
+      } else {
+         panelPrompts = `
+         Panel 1: Action A.
+         Panel 2: Action B.
+         Panel 3: Action C.
+         Panel 4: Action D.
+         Panel 5: Action E.
+         Panel 6: Action F.
+         Panel 7: Action G.
+         Panel 8: Action H.
+         Panel 9: Action I.
+         `;
+      }
+  }
+
   const finalPrompt = `
 ${dnaPrompt}
+${gridInstructions}
 
-**SCENE DEFINITION:**
+**SCENE TRUTH (APPLIES TO ALL PANELS):**
 ${prompt}
+
+${panelPrompts}
 
 **RENDER INSTRUCTIONS:**
 - Photorealistic, cinematic 8K render.
 - High dynamic range.
-- Texture rich (pores, fabric weave, rust, dust).
 - NO cartoons (unless style specified).
-- NO empty spaces. Populate the frame based on the Environment lists above.
-- **FORBIDDEN ELEMENTS**: Do NOT add snow, rain, floating particles, dust, or "magical sparkles" unless explicitly requested in the Scene Definition. The image should be clean.
+- NO empty spaces.
+- **Visual Consistency**: The character identity and setting must remain constant across all 9 panels.
 
 **CONSISTENCY PROTOCOL:**
 - IF Reference Images are provided:
-   - IMAGE 1 (if present) is the MASTER CHARACTER ASSET. The character's face, hair, and MAIN CLOTHING must match this exactly.
-   - IMAGE 2 (if present) is the SETTING ASSET. The architecture must match this.
-   - IMAGE 3 (if present) is the PREVIOUS SCENE. Use this for lighting continuity and relative positioning, but prioritize Image 1 for character identity.
+   - IMAGE 1 (if present) is the MASTER CHARACTER ASSET.
+   - IMAGE 2 (if present) is the SETTING ASSET.
 `;
 
   const parts: any[] = [{ text: finalPrompt }];
@@ -336,13 +358,15 @@ ${prompt}
 
   const imageConfig: any = {
     aspectRatio: safeAspectRatio,
+    // We only want 1 image returned (the contact sheet)
+    numberOfImages: 1 
   };
   
   if (MODEL_IMAGE_GEN.includes('pro')) {
       imageConfig.imageSize = imageSize;
   }
   
-  const systemInstruction = `You are a high-end renderer. You receive a structured data prompt. You must execute every detail. If the prompt mentions background elements, you MUST include them. Do NOT add environmental particles (snow, rain, dust) unless the prompt specifically asks for them. ${globalStyle || ''}`;
+  const systemInstruction = `You are a high-end visual director. ${useGridMode ? `Create a precision 3x3 grid. 9 Equal Panels. Each panel is ${panelShapeDescription}. Same Character/Setting. 9 DIFFERENT ACTIONS/MOMENTS.` : 'Create a single scene.'} ${globalStyle || ''}`;
 
   try {
       const response = await ai.models.generateContent({
@@ -356,18 +380,18 @@ ${prompt}
       return extractImageFromResponse(response);
 
   } catch (error: any) {
-      // HANDLE IMAGE_OTHER ERROR (Common with Gemini 3 Pro Image)
+      // Fallback Logic
       const isGenerationError = error.message?.includes('IMAGE_OTHER') || 
                                 error.toString().includes('IMAGE_OTHER') ||
                                 error.message?.includes('500') ||
                                 error.message?.includes('503');
 
       if (isGenerationError) {
-         console.warn(`Primary model ${MODEL_IMAGE_GEN} failed with error: ${error.message}. Falling back to ${MODEL_IMAGE_GEN_FALLBACK}.`);
+         console.warn(`Primary model failed. Falling back to ${MODEL_IMAGE_GEN_FALLBACK}.`);
          
-         // Fallback configuration (No imageSize supported on Flash)
          const fallbackConfig = {
-            aspectRatio: safeAspectRatio
+            aspectRatio: safeAspectRatio,
+            numberOfImages: 1
          };
          
          try {
@@ -381,10 +405,9 @@ ${prompt}
              });
              return extractImageFromResponse(fallbackResponse);
          } catch (fallbackError: any) {
-             throw new Error(`Both primary and fallback models failed. Last error: ${fallbackError.message}`);
+             throw new Error(`Both models failed. ${fallbackError.message}`);
          }
       }
-      
       throw error;
   }
 };
@@ -393,28 +416,16 @@ const extractImageFromResponse = (response: any): string => {
   if (!response.candidates || response.candidates.length === 0) {
      throw new Error("AI returned no candidates.");
   }
-  
   const candidate = response.candidates[0];
-
-  if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-      if (candidate.finishReason === 'SAFETY') {
-          throw new Error("Image generation blocked by safety filters.");
-      }
-      // If we are here, it's a failure reason we didn't catch in the try/catch or it passed through
-      throw new Error(`AI Generation Failed. Reason: ${candidate.finishReason}`);
-  }
-
   const part = candidate.content?.parts?.find((p: any) => p.inlineData);
   if (part && part.inlineData && part.inlineData.data) {
     return `data:image/png;base64,${part.inlineData.data}`;
   }
-  
   const textPart = candidate.content?.parts?.find((p: any) => p.text);
   if (textPart && textPart.text) {
       const msg = textPart.text.length > 150 ? textPart.text.substring(0, 150) + "..." : textPart.text;
       throw new Error(`AI Refused: ${msg}`);
   }
-  
   throw new Error("No image generated.");
 }
 
@@ -426,23 +437,16 @@ export const editImage = async (base64Image: string, instruction: string): Promi
     model: MODEL_IMAGE_EDIT,
     contents: {
       parts: [
-        {
-          inlineData: {
-            mimeType: 'image/png',
-            data: cleanBase64,
-          },
-        },
+        { inlineData: { mimeType: 'image/png', data: cleanBase64 } },
         { text: `Edit this image: ${instruction}` },
       ],
     },
   });
-  
   return extractImageFromResponse(response);
 };
 
 export const generateSpeech = async (text: string, voiceName: string = 'Puck'): Promise<ArrayBuffer> => {
   const ai = getAi();
-  
   const response = await ai.models.generateContent({
     model: MODEL_TTS,
     contents: [{ parts: [{ text }] }],
@@ -455,7 +459,6 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
       },
     },
   });
-
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   if (!base64Audio) throw new Error("No audio generated");
   
@@ -469,14 +472,11 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
 };
 
 export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
-    stopAudio(); // Stop any currently playing audio first
-
+    stopAudio();
     const sampleRate = 24000;
     if (!audioContext) {
          audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate });
     }
-    
-    // Manual decoding of raw PCM
     const dataInt16 = new Int16Array(audioData);
     const numChannels = 1;
     const frameCount = dataInt16.length / numChannels;
@@ -487,17 +487,12 @@ export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
             channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
         }
     }
-    
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    
     currentSource = source;
-
     return new Promise((resolve) => {
-        source.onended = () => {
-            resolve();
-        };
+        source.onended = () => { resolve(); };
         source.start(0);
     });
 };
