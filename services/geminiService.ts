@@ -5,6 +5,7 @@ const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const MODEL_TEXT_ANALYSIS = 'gemini-3-pro-preview'; 
 const MODEL_IMAGE_GEN = 'gemini-3-pro-image-preview'; 
+const MODEL_IMAGE_GEN_FALLBACK = 'gemini-2.5-flash-image'; // Fallback model
 const MODEL_IMAGE_EDIT = 'gemini-3-pro-image-preview'; 
 const MODEL_TTS = 'gemini-2.5-flash-preview-tts';
 
@@ -340,16 +341,55 @@ ${prompt}
   if (MODEL_IMAGE_GEN.includes('pro')) {
       imageConfig.imageSize = imageSize;
   }
-
-  const response = await ai.models.generateContent({
-    model: MODEL_IMAGE_GEN,
-    contents: { parts },
-    config: { 
-      imageConfig,
-      systemInstruction: `You are a high-end renderer. You receive a structured data prompt. You must execute every detail. If the prompt mentions background elements, you MUST include them. Do NOT add environmental particles (snow, rain, dust) unless the prompt specifically asks for them. ${globalStyle || ''}`
-    }
-  });
   
+  const systemInstruction = `You are a high-end renderer. You receive a structured data prompt. You must execute every detail. If the prompt mentions background elements, you MUST include them. Do NOT add environmental particles (snow, rain, dust) unless the prompt specifically asks for them. ${globalStyle || ''}`;
+
+  try {
+      const response = await ai.models.generateContent({
+        model: MODEL_IMAGE_GEN,
+        contents: { parts },
+        config: { 
+          imageConfig,
+          systemInstruction
+        }
+      });
+      return extractImageFromResponse(response);
+
+  } catch (error: any) {
+      // HANDLE IMAGE_OTHER ERROR (Common with Gemini 3 Pro Image)
+      const isGenerationError = error.message?.includes('IMAGE_OTHER') || 
+                                error.toString().includes('IMAGE_OTHER') ||
+                                error.message?.includes('500') ||
+                                error.message?.includes('503');
+
+      if (isGenerationError) {
+         console.warn(`Primary model ${MODEL_IMAGE_GEN} failed with error: ${error.message}. Falling back to ${MODEL_IMAGE_GEN_FALLBACK}.`);
+         
+         // Fallback configuration (No imageSize supported on Flash)
+         const fallbackConfig = {
+            aspectRatio: safeAspectRatio
+         };
+         
+         try {
+             const fallbackResponse = await ai.models.generateContent({
+                model: MODEL_IMAGE_GEN_FALLBACK,
+                contents: { parts },
+                config: {
+                    imageConfig: fallbackConfig,
+                    systemInstruction
+                }
+             });
+             return extractImageFromResponse(fallbackResponse);
+         } catch (fallbackError: any) {
+             throw new Error(`Both primary and fallback models failed. Last error: ${fallbackError.message}`);
+         }
+      }
+      
+      throw error;
+  }
+};
+
+const extractImageFromResponse = (response: any): string => {
   if (!response.candidates || response.candidates.length === 0) {
      throw new Error("AI returned no candidates.");
   }
@@ -360,22 +400,23 @@ ${prompt}
       if (candidate.finishReason === 'SAFETY') {
           throw new Error("Image generation blocked by safety filters.");
       }
+      // If we are here, it's a failure reason we didn't catch in the try/catch or it passed through
       throw new Error(`AI Generation Failed. Reason: ${candidate.finishReason}`);
   }
 
-  const part = candidate.content?.parts?.find(p => p.inlineData);
+  const part = candidate.content?.parts?.find((p: any) => p.inlineData);
   if (part && part.inlineData && part.inlineData.data) {
     return `data:image/png;base64,${part.inlineData.data}`;
   }
   
-  const textPart = candidate.content?.parts?.find(p => p.text);
+  const textPart = candidate.content?.parts?.find((p: any) => p.text);
   if (textPart && textPart.text) {
       const msg = textPart.text.length > 150 ? textPart.text.substring(0, 150) + "..." : textPart.text;
       throw new Error(`AI Refused: ${msg}`);
   }
   
   throw new Error("No image generated.");
-};
+}
 
 export const editImage = async (base64Image: string, instruction: string): Promise<string> => {
    const ai = getAi();
@@ -396,14 +437,7 @@ export const editImage = async (base64Image: string, instruction: string): Promi
     },
   });
   
-  const candidate = response.candidates?.[0];
-  if (!candidate) throw new Error("No candidates returned");
-
-  const part = candidate.content?.parts?.find(p => p.inlineData);
-  if (part && part.inlineData && part.inlineData.data) {
-    return `data:image/png;base64,${part.inlineData.data}`;
-  }
-  throw new Error("No edited image returned");
+  return extractImageFromResponse(response);
 };
 
 export const generateSpeech = async (text: string, voiceName: string = 'Puck'): Promise<ArrayBuffer> => {
