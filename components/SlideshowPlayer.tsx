@@ -1,24 +1,69 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ChevronLeft, ChevronRight, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Play, Pause, Square } from 'lucide-react';
 import { StorySegment } from '../types';
 
 interface SlideshowPlayerProps {
   segments: StorySegment[];
   onClose: () => void;
-  onPlayAudio: (text: string) => void;
+  onPlayAudio: (text: string) => Promise<void>;
+  onStopAudio: () => void;
 }
 
 const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   segments,
   onClose,
-  onPlayAudio
+  onPlayAudio,
+  onStopAudio
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [autoRead, setAutoRead] = useState(false);
-  const timeoutRef = useRef<number | null>(null);
-
+  
   const segment = segments[currentIndex];
+  const isPlayingRef = useRef(isPlaying);
+
+  // Sync ref
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (!isPlaying) {
+      onStopAudio();
+    }
+  }, [isPlaying]);
+
+  // Main playback loop
+  useEffect(() => {
+    let isCancelled = false;
+
+    const runSequence = async () => {
+       if (isPlaying && !isCancelled) {
+          try {
+             await onPlayAudio(segment.text);
+             
+             // Check if we should still proceed
+             if (!isCancelled && isPlayingRef.current) {
+                if (currentIndex < segments.length - 1) {
+                  setCurrentIndex(prev => prev + 1);
+                } else {
+                  setIsPlaying(false);
+                }
+             }
+          } catch (e) {
+             console.error("Audio playback error:", e);
+             setIsPlaying(false);
+          }
+       }
+    };
+
+    if (isPlaying) {
+      runSequence();
+    }
+
+    return () => {
+       isCancelled = true;
+       // We do NOT stop audio here on unmount of effect unless it was a hard stop
+       // But to ensure clean transitions:
+       onStopAudio();
+    };
+  }, [currentIndex, isPlaying]); // Reruns when index changes or play state toggles
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -29,51 +74,28 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, isPlaying]); // Dependencies to ensure closures have fresh state if needed
-
-  useEffect(() => {
-    if (isPlaying) {
-      // Approximate reading time: 200 words per minute + 2 seconds buffer
-      const wordCount = segment.text.split(/\s+/).length;
-      const readingTimeMs = Math.max(5000, (wordCount / 200) * 60 * 1000 + 2000);
-      
-      timeoutRef.current = window.setTimeout(() => {
-        if (currentIndex < segments.length - 1) {
-          setCurrentIndex(prev => prev + 1);
-        } else {
-          setIsPlaying(false);
-        }
-      }, readingTimeMs);
-    }
-
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [currentIndex, isPlaying, segment.text]);
-
-  useEffect(() => {
-    if (autoRead) {
-      // Small delay to ensure smooth transition before audio starts
-      const audioTimer = setTimeout(() => {
-         onPlayAudio(segment.text);
-      }, 500);
-      return () => clearTimeout(audioTimer);
-    }
-  }, [currentIndex, autoRead]);
+  }, [currentIndex, isPlaying]);
 
   const nextSlide = () => {
     if (currentIndex < segments.length - 1) {
+      setIsPlaying(false);
       setCurrentIndex(prev => prev + 1);
     }
   };
 
   const prevSlide = () => {
     if (currentIndex > 0) {
+      setIsPlaying(false);
       setCurrentIndex(prev => prev - 1);
     }
   };
 
   const togglePlay = () => setIsPlaying(!isPlaying);
+
+  const stopPlayback = () => {
+    setIsPlaying(false);
+    onStopAudio();
+  };
 
   return (
     <div className="fixed inset-0 z-[100] bg-black text-white flex flex-col animate-fade-in">
@@ -83,16 +105,9 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
           <span className="text-sm font-medium opacity-70">
             Scene {currentIndex + 1} / {segments.length}
           </span>
-          <button 
-            onClick={() => setAutoRead(!autoRead)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${autoRead ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
-          >
-            {autoRead ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
-            {autoRead ? 'Auto-Read On' : 'Auto-Read Off'}
-          </button>
         </div>
         <button 
-          onClick={onClose}
+          onClick={() => { stopPlayback(); onClose(); }}
           className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
         >
           <X className="w-6 h-6" />
@@ -156,7 +171,7 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
 
         <button 
           onClick={togglePlay}
-          className="w-16 h-16 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.3)]"
+          className={`w-16 h-16 rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.3)] ${isPlaying ? 'bg-slate-700 text-white' : 'bg-white text-black'}`}
         >
           {isPlaying ? (
             <Pause className="w-6 h-6 fill-current" />
@@ -164,6 +179,16 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
             <Play className="w-6 h-6 fill-current ml-1" />
           )}
         </button>
+
+        {isPlaying && (
+           <button 
+             onClick={stopPlayback}
+             className="w-12 h-12 bg-red-600/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center hover:scale-105 transition-transform"
+             title="Stop Audio"
+           >
+             <Square className="w-5 h-5 fill-current" />
+           </button>
+        )}
 
         <button 
           onClick={nextSlide}

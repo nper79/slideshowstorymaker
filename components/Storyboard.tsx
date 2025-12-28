@@ -9,7 +9,8 @@ interface StoryboardProps {
   settings: Setting[];
   onGenerateScene: (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => void;
   onEditImage: (segmentId: string, instruction: string) => void;
-  onPlayAudio: (text: string) => void;
+  onPlayAudio: (text: string) => Promise<void>;
+  onStopAudio: () => void;
 }
 
 const Storyboard: React.FC<StoryboardProps> = ({ 
@@ -18,7 +19,8 @@ const Storyboard: React.FC<StoryboardProps> = ({
   settings, 
   onGenerateScene,
   onEditImage,
-  onPlayAudio
+  onPlayAudio,
+  onStopAudio
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPrompt, setEditPrompt] = useState('');
@@ -226,6 +228,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
           segments={segments} 
           onClose={() => setShowPlayer(false)} 
           onPlayAudio={onPlayAudio}
+          onStopAudio={onStopAudio}
         />
       )}
     </div>

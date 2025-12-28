@@ -29,6 +29,7 @@ export default function App() {
   const [selectedVoice, setSelectedVoice] = useState('Puck');
 
   useEffect(() => {
+    // 1. Check API Key
     const checkKey = async () => {
       const aistudio = (window as any).aistudio as AIStudio | undefined;
       if (aistudio) {
@@ -43,6 +44,20 @@ export default function App() {
       }
     };
     checkKey();
+
+    // 2. Generic Cleanup for background artifacts
+    const cleanupBackground = () => {
+        const canvases = document.querySelectorAll('body > canvas');
+        canvases.forEach((c: any) => {
+            c.style.display = 'none';
+            if(c.parentNode) c.parentNode.removeChild(c);
+        });
+    };
+    cleanupBackground();
+    
+    const interval = setInterval(cleanupBackground, 500);
+    return () => clearInterval(interval);
+
   }, []);
 
   const handleSelectKey = async () => {
@@ -94,10 +109,21 @@ export default function App() {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
       
-      const prompt = `Full body character portrait. Character: ${char.name}. Description: ${char.description}. ${char.visualPrompt}.`;
+      // CRITICAL: Force full body shot from head to toe to catch pants/shoes details
+      const prompt = `
+        Full Body Wide Shot. 
+        Camera must capture the character from Head to Toe.
+        Feet and shoes MUST be visible.
+        Pants/Legs MUST be visible.
+        Character is standing in a neutral lighting studio environment.
+        
+        Character Name: ${char.name}. 
+        Description: ${char.description}. 
+        Visual Notes: ${char.visualPrompt}.
+      `;
       
       // Pass the global style guide to ensure character fits the world
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.SQUARE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA);
+      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.PORTRAIT, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA);
 
       setStoryData(prev => {
         if (!prev) return null;
@@ -133,7 +159,7 @@ export default function App() {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
       
-      const prompt = `Direct top-down overhead camera view. Setting: ${setting.name}. Description: ${setting.description}. ${setting.visualPrompt}.`;
+      const prompt = `Direct top-down overhead camera view (Architecture Plan View). Setting: ${setting.name}. Description: ${setting.description}. ${setting.visualPrompt}.`;
       
       // Pass the global style guide
       const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.LANDSCAPE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA);
@@ -267,10 +293,14 @@ export default function App() {
     }
   };
 
-  const handlePlayAudio = async (text: string) => {
+  const handlePlayAudio = async (text: string): Promise<void> => {
       // Use the currently selected voice from state
       const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
       await GeminiService.playAudio(audioBuffer);
+  };
+
+  const handleStopAudio = () => {
+    GeminiService.stopAudio();
   };
 
   const handleExport = async () => {
@@ -306,7 +336,7 @@ export default function App() {
 
   if (!hasApiKey) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center p-4 relative z-50">
         <div className="max-w-md w-full bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-2xl text-center">
           <div className="w-16 h-16 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <Key className="w-8 h-8 text-indigo-400" />
@@ -338,7 +368,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200">
+    <div className="min-h-screen bg-[#0f172a] text-slate-200 relative z-50">
       {/* Navbar */}
       <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -459,6 +489,7 @@ export default function App() {
                onGenerateScene={handleGenerateScene}
                onEditImage={handleEditImage}
                onPlayAudio={handlePlayAudio}
+               onStopAudio={handleStopAudio}
              />
           </div>
         )}

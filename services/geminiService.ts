@@ -17,6 +17,25 @@ export const VOICES = [
 ];
 
 // ============================================
+// AUDIO CONTROL
+// ============================================
+
+let currentSource: AudioBufferSourceNode | null = null;
+let audioContext: AudioContext | null = null;
+
+export const stopAudio = () => {
+  if (currentSource) {
+    try {
+      currentSource.stop();
+      currentSource.disconnect();
+    } catch (e) {
+      console.warn("Error stopping audio", e);
+    }
+    currentSource = null;
+  }
+};
+
+// ============================================
 // LOGIC & INFERENCE ENGINE
 // ============================================
 
@@ -291,6 +310,7 @@ ${prompt}
 - Texture rich (pores, fabric weave, rust, dust).
 - NO cartoons (unless style specified).
 - NO empty spaces. Populate the frame based on the Environment lists above.
+- **FORBIDDEN ELEMENTS**: Do NOT add snow, rain, floating particles, dust, or "magical sparkles" unless explicitly requested in the Scene Definition. The image should be clean.
 
 **CONSISTENCY PROTOCOL:**
 - IF Reference Images are provided:
@@ -326,7 +346,7 @@ ${prompt}
     contents: { parts },
     config: { 
       imageConfig,
-      systemInstruction: `You are a high-end renderer. You receive a structured data prompt. You must execute every detail. If the prompt mentions background elements, you MUST include them. ${globalStyle || ''}`
+      systemInstruction: `You are a high-end renderer. You receive a structured data prompt. You must execute every detail. If the prompt mentions background elements, you MUST include them. Do NOT add environmental particles (snow, rain, dust) unless the prompt specifically asks for them. ${globalStyle || ''}`
     }
   });
   
@@ -414,9 +434,15 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
   return bytes.buffer;
 };
 
-export const playAudio = async (audioData: ArrayBuffer) => {
+export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
+    stopAudio(); // Stop any currently playing audio first
+
     const sampleRate = 24000;
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate });
+    if (!audioContext) {
+         audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate });
+    }
+    
+    // Manual decoding of raw PCM
     const dataInt16 = new Int16Array(audioData);
     const numChannels = 1;
     const frameCount = dataInt16.length / numChannels;
@@ -427,8 +453,17 @@ export const playAudio = async (audioData: ArrayBuffer) => {
             channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
         }
     }
+    
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    source.start(0);
+    
+    currentSource = source;
+
+    return new Promise((resolve) => {
+        source.onended = () => {
+            resolve();
+        };
+        source.start(0);
+    });
 };
