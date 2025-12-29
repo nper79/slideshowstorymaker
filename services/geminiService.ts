@@ -296,6 +296,7 @@ export const generateImage = async (
       - **CONTENT**: This is a VARIATION BOARD for the scene.
       - **CONSISTENCY**: The CHARACTER IDENTITY (Face, Clothes, Body) and general SETTING must remain consistent.
       - **VARIATION**: The ACTION, POSE, and INTERACTION must change in every panel as described below.
+      - **STYLE**: Images stacked together with no grid lines and no borders. No Text.
       `;
 
       if (gridVariations && gridVariations.length > 0) {
