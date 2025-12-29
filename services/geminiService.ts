@@ -7,14 +7,27 @@ const MODEL_TEXT_ANALYSIS = 'gemini-3-pro-preview';
 const MODEL_IMAGE_GEN = 'gemini-3-pro-image-preview'; 
 const MODEL_IMAGE_GEN_FALLBACK = 'gemini-2.5-flash-image'; 
 const MODEL_IMAGE_EDIT = 'gemini-3-pro-image-preview'; 
+// Corrected to the supported TTS model
 const MODEL_TTS = 'gemini-2.5-flash-preview-tts';
 
 export const VOICES = [
+  // Classic Voices (Verified supported)
   { name: 'Puck', gender: 'Male', style: 'Neutral & Clear' },
   { name: 'Charon', gender: 'Male', style: 'Deep & Grave' },
   { name: 'Kore', gender: 'Female', style: 'Soothing & Calm' },
   { name: 'Fenrir', gender: 'Male', style: 'Intense & Resonant' },
   { name: 'Zephyr', gender: 'Female', style: 'Bright & Energetic' },
+  
+  // New Native Audio Voices (Verified supported)
+  { name: 'Aoede', gender: 'Female', style: 'Confident & Professional' },
+  { name: 'Iapetus', gender: 'Male', style: 'Deep & Steady' },
+  { name: 'Umbriel', gender: 'Male', style: 'Resonant & Low' },
+  { name: 'Algieba', gender: 'Male', style: 'Smooth & Deep' },
+  { name: 'Despina', gender: 'Female', style: 'Warm & Smooth' },
+  { name: 'Erinome', gender: 'Female', style: 'Clear & Balanced' },
+  // Replaced unsupported 'Himalia' with 'Leda'
+  { name: 'Leda', gender: 'Female', style: 'Crisp & Open' }, 
+  { name: 'Callirrhoe', gender: 'Female', style: 'Gentle & Soft' }
 ];
 
 let currentSource: AudioBufferSourceNode | null = null;
@@ -471,13 +484,71 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
   return bytes.buffer;
 };
 
+// Helper for writing string to DataView
+const writeString = (view: DataView, offset: number, string: string) => {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+};
+
+/**
+ * Wraps raw PCM data in a WAV file container so browsers can play it via Blob URL.
+ */
+export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000): Blob => {
+  const buffer = new ArrayBuffer(44 + audioData.byteLength);
+  const view = new DataView(buffer);
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + audioData.byteLength, true);
+  writeString(view, 8, 'WAVE');
+
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // Byte rate (SampleRate * BlockAlign)
+  view.setUint16(32, 2, true); // Block align (NumChannels * BitsPerSample/8)
+  view.setUint16(34, 16, true); // Bits per sample
+
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, audioData.byteLength, true);
+
+  // Write audio data
+  const audioView = new Uint8Array(audioData);
+  const wavView = new Uint8Array(buffer, 44);
+  wavView.set(audioView);
+
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
 export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
     stopAudio();
     const sampleRate = 24000;
+    
+    // 1. Create Context if missing
     if (!audioContext) {
          audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate });
     }
-    const dataInt16 = new Int16Array(audioData);
+
+    // 2. CRITICAL FIX: Ensure context is running. Browsers suspend it by default.
+    if (audioContext.state === 'suspended') {
+        try {
+            await audioContext.resume();
+        } catch (e) {
+            console.error("Failed to resume audio context", e);
+        }
+    }
+
+    // 3. Safer buffer view creation (handling potential odd-byte lengths)
+    // Make sure we have an even number of bytes for Int16Array
+    const dataLen = audioData.byteLength;
+    const safeLen = dataLen % 2 === 0 ? dataLen : dataLen - 1;
+    const dataInt16 = new Int16Array(audioData.slice(0, safeLen));
+
     const numChannels = 1;
     const frameCount = dataInt16.length / numChannels;
     const audioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);

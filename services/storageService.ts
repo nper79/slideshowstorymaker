@@ -33,11 +33,23 @@ export const exportProject = async (storyData: StoryData) => {
   // Process Segments (Updated for Grid System)
   // Cast to any to handle legacy property cleanup
   dataToSave.segments.forEach((segment: any) => {
-    // 1. Save the selected/cropped final image
+    // 1. Save the selected/cropped final images (Array)
+    if (segment.generatedImageUrls && Array.isArray(segment.generatedImageUrls)) {
+        segment.generatedImageUrls.forEach((url: string, index: number) => {
+            if (url && url.startsWith('data:')) {
+                const fileName = `segment_${segment.id}_img_${index}.png`;
+                assetsFolder?.file(fileName, getBase64Data(url), { base64: true });
+                segment.generatedImageUrls[index] = `assets/${fileName}`;
+            }
+        });
+    }
+
+    // 1.1 Save legacy single image if exists (and remove it)
     if (segment.generatedImageUrl && segment.generatedImageUrl.startsWith('data:')) {
-      const fileName = `segment_${segment.id}_final.png`;
-      assetsFolder?.file(fileName, getBase64Data(segment.generatedImageUrl), { base64: true });
-      segment.generatedImageUrl = `assets/${fileName}`;
+        // We do not save this as generatedImageUrl to avoid confusion on import, 
+        // unless we want to migrate it to generatedImageUrls.
+        // For now, let's just delete it to clean up the export file.
+        delete segment.generatedImageUrl;
     }
     
     // 2. Save the MASTER GRID image
@@ -92,8 +104,22 @@ export const importProject = async (file: File): Promise<StoryData> => {
   }));
 
   await Promise.all(storyData.segments.map(async (s: any) => {
-    // Restore cropped final
-    if (s.generatedImageUrl) s.generatedImageUrl = await reconstructImage(s.generatedImageUrl);
+    // Restore cropped final images (Array)
+    if (s.generatedImageUrls && Array.isArray(s.generatedImageUrls)) {
+        const restoredUrls = await Promise.all(s.generatedImageUrls.map((url: string) => reconstructImage(url)));
+        s.generatedImageUrls = restoredUrls.filter((u): u is string => !!u);
+    }
+
+    // Legacy support: generatedImageUrl
+    if (s.generatedImageUrl) {
+        const restored = await reconstructImage(s.generatedImageUrl);
+        if (restored) {
+             if (!s.generatedImageUrls) s.generatedImageUrls = [];
+             s.generatedImageUrls.push(restored);
+        }
+        delete s.generatedImageUrl;
+    }
+
     // Restore master grid
     if (s.masterGridImageUrl) s.masterGridImageUrl = await reconstructImage(s.masterGridImageUrl);
   }));

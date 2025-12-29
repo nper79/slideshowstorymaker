@@ -76,7 +76,7 @@ const StoryInput: React.FC<StoryInputProps> = ({ onAnalyze, status, selectedVoic
               <label className="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">
                 <Mic className="w-4 h-4" /> Narrator Voice
               </label>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
                 {VOICES.map((voice) => (
                   <div 
                     key={voice.name}
@@ -88,22 +88,22 @@ const StoryInput: React.FC<StoryInputProps> = ({ onAnalyze, status, selectedVoic
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${selectedVoice === voice.name ? 'bg-indigo-400' : 'bg-slate-600'}`} />
-                      <div>
-                        <span className="text-sm font-bold text-white block">{voice.name}</span>
-                        <span className="text-xs text-slate-400">{voice.gender} &bull; {voice.style}</span>
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${selectedVoice === voice.name ? 'bg-indigo-400' : 'bg-slate-600'}`} />
+                      <div className="min-w-0">
+                        <span className="text-sm font-bold text-white block truncate">{voice.name}</span>
+                        <span className="text-[10px] text-slate-400 truncate block">{voice.style}</span>
                       </div>
                     </div>
                     
                     <button
                       onClick={(e) => handlePreviewVoice(e, voice.name)}
-                      className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-colors text-indigo-400"
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-full transition-colors text-indigo-400 flex-shrink-0"
                       title="Preview Voice"
                     >
                       {previewingVoice === voice.name ? (
-                         <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                         <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
                       ) : (
-                         <Play className="w-4 h-4 fill-current" />
+                         <Play className="w-3 h-3 fill-current" />
                       )}
                     </button>
                   </div>

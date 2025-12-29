@@ -76,14 +76,20 @@ export interface StorySegment {
 
   // GRID SYSTEM UPDATES
   masterGridImageUrl?: string; // The raw 3x3 grid image returned by AI
-  selectedGridIndex?: number; // 0-8 (Which cell was chosen)
+  
+  // UPDATED: Support multiple selections
+  selectedGridIndices: number[]; // Array of selected indices (e.g., [0, 4, 8])
   
   // The 9 distinct prompts for the contact sheet
   gridVariations?: string[]; 
 
-  // Legacy/Computed convenience field (returns the CROPPED selection)
-  generatedImageUrl?: string; 
+  // UPDATED: Support multiple cropped images
+  generatedImageUrls: string[]; 
   
+  // UPDATED: Audio storage for download/streaming
+  audioUrl?: string;
+  audioDuration?: number;
+
   isGenerating?: boolean;
 }
 
