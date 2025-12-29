@@ -68,7 +68,10 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
 
      // Calculate time per slide
      // Add a small "breathing room" to total duration (e.g. +1s) so the last image lingers slightly
-     const duration = (segment.audioDuration || 10) + 1.0; 
+     // Ensure duration is finite (fallback to 10s if Infinity/NaN)
+     const safeDuration = (segment.audioDuration && Number.isFinite(segment.audioDuration)) ? segment.audioDuration : 10;
+     const duration = safeDuration + 1.0; 
+     
      const timePerSlide = (duration * 1000) / images.length;
 
      const interval = setInterval(() => {

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download } from 'lucide-react';
+import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download, Trash2 } from 'lucide-react';
 import { StorySegment, Character, Setting, AspectRatio, ImageSize } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -14,6 +14,7 @@ interface StoryboardProps {
   onPlayAudio: (segmentId: string, text: string) => Promise<void>;
   onStopAudio: () => void;
   onSelectOption: (segmentId: string, optionIndex: number) => void;
+  onDeleteAudio: (segmentId: string) => void;
 }
 
 const Storyboard: React.FC<StoryboardProps> = ({ 
@@ -24,7 +25,8 @@ const Storyboard: React.FC<StoryboardProps> = ({
   onEditImage,
   onPlayAudio,
   onStopAudio,
-  onSelectOption
+  onSelectOption,
+  onDeleteAudio
 }) => {
   const [generatingAudioId, setGeneratingAudioId] = useState<string | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
@@ -185,14 +187,23 @@ const Storyboard: React.FC<StoryboardProps> = ({
                             </button>
                             
                             {segment.audioUrl && (
-                                <a 
-                                  href={segment.audioUrl} 
-                                  download={`audio_scene_${index+1}.wav`}
-                                  className="text-slate-400 hover:text-green-400 transition-colors p-1"
-                                  title="Download Audio File"
-                                >
-                                    <Download className="w-4 h-4" />
-                                </a>
+                                <>
+                                  <a 
+                                    href={segment.audioUrl} 
+                                    download={`audio_scene_${index+1}.wav`}
+                                    className="text-slate-400 hover:text-green-400 transition-colors p-1"
+                                    title="Download Audio File"
+                                  >
+                                      <Download className="w-4 h-4" />
+                                  </a>
+                                  <button
+                                      onClick={() => onDeleteAudio(segment.id)}
+                                      className="text-slate-400 hover:text-red-400 transition-colors p-1"
+                                      title="Delete Audio"
+                                  >
+                                      <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
                             )}
                          </div>
                     </div>

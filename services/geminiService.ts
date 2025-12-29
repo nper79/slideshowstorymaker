@@ -495,12 +495,29 @@ const writeString = (view: DataView, offset: number, string: string) => {
  * Wraps raw PCM data in a WAV file container so browsers can play it via Blob URL.
  */
 export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000): Blob => {
-  const buffer = new ArrayBuffer(44 + audioData.byteLength);
+  // 1. Safe Check: If the audioData already has a RIFF header, don't double wrap it.
+  // "RIFF" in ASCII is 0x52 0x49 0x46 0x46
+  if (audioData.byteLength >= 4) {
+    const headerView = new DataView(audioData);
+    // getUint32 is big-endian by default? No, default is big-endian. RIFF is 52 49 46 46.
+    // getUint32(0, false) reads big-endian.
+    if (headerView.getUint32(0, false) === 0x52494646) {
+       return new Blob([audioData], { type: 'audio/wav' });
+    }
+  }
+
+  const dataLen = audioData.byteLength;
+  // WAV requires data chunks to be word-aligned. If odd, add a padding byte.
+  const padding = dataLen % 2 === 1 ? 1 : 0;
+  
+  const buffer = new ArrayBuffer(44 + dataLen + padding);
   const view = new DataView(buffer);
 
   // RIFF chunk descriptor
   writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + audioData.byteLength, true);
+  // File size = Total Size - 8 bytes (RIFF ID + Size). 
+  // Total Size = 44 + dataLen + padding
+  view.setUint32(4, 36 + dataLen + padding, true);
   writeString(view, 8, 'WAVE');
 
   // fmt sub-chunk
@@ -515,12 +532,14 @@ export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000
 
   // data sub-chunk
   writeString(view, 36, 'data');
-  view.setUint32(40, audioData.byteLength, true);
+  view.setUint32(40, dataLen, true);
 
   // Write audio data
   const audioView = new Uint8Array(audioData);
   const wavView = new Uint8Array(buffer, 44);
   wavView.set(audioView);
+  
+  // Padding byte (if exists) is automatically 0 due to new ArrayBuffer() initialization.
 
   return new Blob([buffer], { type: 'audio/wav' });
 };
@@ -546,6 +565,27 @@ export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
     // 3. Safer buffer view creation (handling potential odd-byte lengths)
     // Make sure we have an even number of bytes for Int16Array
     const dataLen = audioData.byteLength;
+    // Check if it's a WAV file first, if so decode via native context
+    if (dataLen >= 4) {
+       const view = new DataView(audioData);
+       if (view.getUint32(0, false) === 0x52494646) {
+           // It is a WAV file, let the browser decode it
+           try {
+             // We must copy the buffer because decodeAudioData detaches it
+             const bufferCopy = audioData.slice(0);
+             const audioBuffer = await audioContext.decodeAudioData(bufferCopy);
+             const source = audioContext.createBufferSource();
+             source.buffer = audioBuffer;
+             source.connect(audioContext.destination);
+             currentSource = source;
+             source.start(0);
+             return;
+           } catch (e) {
+             console.warn("Browser failed to decode WAV, falling back to raw PCM assume", e);
+           }
+       }
+    }
+
     const safeLen = dataLen % 2 === 0 ? dataLen : dataLen - 1;
     const dataInt16 = new Int16Array(audioData.slice(0, safeLen));
 

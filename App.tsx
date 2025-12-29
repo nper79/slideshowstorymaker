@@ -282,14 +282,30 @@ export default function App() {
       }
   };
 
+  const handleDeleteAudio = (segmentId: string) => {
+     if (!storyData) return;
+     setStoryData(prev => prev ? ({
+        ...prev,
+        segments: prev.segments.map(s => s.id === segmentId ? {
+            ...s,
+            audioUrl: undefined,
+            audioDuration: undefined
+        } : s)
+     }) : null);
+  };
+
   // Modified to generate AND store the audio blob
   const handleGenerateAndPlayAudio = async (segmentId: string, text: string): Promise<void> => {
       const segment = storyData?.segments.find(s => s.id === segmentId);
       
       // If audio already exists, just play it
       if (segment?.audioUrl) {
-          const audio = new Audio(segment.audioUrl);
-          audio.play();
+          try {
+             const audio = new Audio(segment.audioUrl);
+             await audio.play();
+          } catch(err) {
+             console.error("Playback failed on existing audio", err);
+          }
           return;
       }
 
@@ -307,14 +323,27 @@ export default function App() {
           
           // Get duration
           const audio = new Audio(url);
-          // Wait for metadata to load to get duration
-          await new Promise((resolve) => {
+          
+          // Safer loading sequence
+          const loaded = await new Promise((resolve) => {
               audio.onloadedmetadata = () => resolve(true);
-              // Small timeout in case metadata load fails
+              audio.onerror = () => resolve(false); 
+              // Short timeout for metadata
               setTimeout(() => resolve(false), 2000);
           });
           
-          const duration = audio.duration || 10; // Default fallback
+          if (!loaded) {
+              console.warn("Audio failed to load metadata. Source format may be unsupported by browser.");
+              // Do not update state if audio is broken to allow retry
+              setStoryData(prev => prev ? ({
+                 ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
+              }) : null);
+              return;
+          }
+
+          let duration = audio.duration;
+          // Fix for Infinity/NaN durations in some browsers for Blob URLs
+          if (!Number.isFinite(duration)) duration = 10;
 
           // Update state with URL and duration
           setStoryData(prev => prev ? ({
@@ -328,7 +357,11 @@ export default function App() {
           }) : null);
 
           // Play immediately
-          audio.play();
+          try {
+             await audio.play();
+          } catch(err) {
+             console.error("Auto-play failed", err);
+          }
 
       } catch (e) {
           console.error("Audio generation failed", e);
@@ -459,6 +492,7 @@ export default function App() {
                onPlayAudio={handleGenerateAndPlayAudio}
                onStopAudio={handleStopAudio}
                onSelectOption={handleSelectOption}
+               onDeleteAudio={handleDeleteAudio}
              />
           </div>
         )}
