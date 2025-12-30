@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize2, Minimize2, AlertTriangle } from 'lucide-react';
 import { StorySegment } from '../types';
 
 interface SlideshowPlayerProps {
@@ -23,6 +23,7 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -54,11 +55,10 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   }, []);
 
   // --- AUDIO CYCLE MANAGEMENT ---
-
   useEffect(() => {
-      // Clear any fake timers
       if (noAudioTimeoutRef.current) clearTimeout(noAudioTimeoutRef.current);
-      setAudioBlocked(false); // Reset blocked state on slide change
+      setAudioBlocked(false);
+      setMediaError(null);
 
       const audio = audioRef.current;
       if (!audio) return;
@@ -67,39 +67,41 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
       setIsLoadingAudio(true);
 
       const handleSourceChange = async () => {
-          if (segment.audioUrl) {
-              // Validate URL before assigning (prevents some MediaErrors)
-              if (segment.audioUrl.startsWith('blob:') && segment.audioUrl.length < 10) {
-                 // Invalid blob, skip audio
-                 handleNoAudioFallback();
-                 return;
-              }
-
-              // Standard Audio Playback
+          // Check if we have a valid audio URL
+          if (segment.audioUrl && segment.audioUrl.length > 5) {
               try {
+                  // Only reload if the source is different to avoid glitches
                   if (audio.src !== segment.audioUrl) {
                       audio.src = segment.audioUrl;
-                      audio.load();
+                      audio.load(); // Reset element
+                      // Playback will be triggered by onCanPlay
                   } else {
-                      if (isPlaying) attemptPlay(audio);
+                      // Same source, just ensure we are playing if needed
+                      if (isPlaying && audio.paused) {
+                          attemptPlay(audio);
+                      } else {
+                          setIsLoadingAudio(false);
+                      }
                   }
               } catch (e) {
                   console.error("Audio Load Error:", e);
-                  handleNoAudioFallback();
+                  handleNoAudioFallback("Audio Load Error");
               }
           } else {
-              handleNoAudioFallback();
+              handleNoAudioFallback(); // No audio available for this slide
           }
       };
 
-      const handleNoAudioFallback = () => {
+      const handleNoAudioFallback = (errorMsg?: string) => {
           if (!audio) return;
           audio.pause();
-          audio.removeAttribute('src'); 
+          
+          if (errorMsg) setMediaError(errorMsg);
           setIsLoadingAudio(false);
           
+          // If playing, start the timer to advance slide
           if (isPlaying) {
-              const simulatedDuration = Math.max(5000, segment.text.length * 50);
+              const simulatedDuration = Math.max(5000, segment.text.length * 60); // Slower reading speed
               noAudioTimeoutRef.current = setTimeout(() => {
                   handleSegmentComplete();
               }, simulatedDuration);
@@ -114,37 +116,43 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   }, [currentSegmentIndex, segment.audioUrl]);
 
   // --- PLAY/PAUSE SYNC ---
-  
   const attemptPlay = async (audio: HTMLAudioElement) => {
+      if (!audio.src || audio.src === window.location.href) return;
+      
       try {
           await audio.play();
           setAudioBlocked(false);
+          setMediaError(null);
       } catch (error: any) {
           if (error.name === 'NotAllowedError') {
-              console.warn("Autoplay blocked. User interaction required.");
               setAudioBlocked(true);
               setIsPlaying(false); 
-          } else {
+          } else if (error.name !== 'AbortError') {
               console.warn("Playback error:", error);
-              setIsPlaying(false);
+              setMediaError("Format Error");
+              // Don't stop, let the timer takeover in onError
           }
       }
   };
   
+  // Watch isPlaying state changes
   useEffect(() => {
       const audio = audioRef.current;
       if (!audio) return;
 
       if (segment.audioUrl) {
           if (isPlaying) {
-              attemptPlay(audio);
+              if (audio.readyState >= 3) { // HAVE_FUTURE_DATA
+                  attemptPlay(audio);
+              }
+              // If not ready, onCanPlay will handle it
           } else {
               audio.pause();
           }
       } else {
           // Timer logic for non-audio slides
           if (isPlaying && !noAudioTimeoutRef.current) {
-              const simulatedDuration = Math.max(5000, segment.text.length * 50);
+              const simulatedDuration = Math.max(5000, segment.text.length * 60);
               noAudioTimeoutRef.current = setTimeout(() => {
                   handleSegmentComplete();
               }, simulatedDuration);
@@ -153,10 +161,9 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
               noAudioTimeoutRef.current = null;
           }
       }
-  }, [isPlaying, currentSegmentIndex]);
+  }, [isPlaying]); // Removed currentSegmentIndex to prevent race condition
 
   // --- IMAGE CAROUSEL ---
-
   useEffect(() => {
      if (!isPlaying || images.length <= 1) return;
 
@@ -174,7 +181,6 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   }, [currentSegmentIndex, isPlaying, images.length, segment.audioDuration]);
 
   // --- HANDLERS ---
-
   const handleSegmentComplete = () => {
       if (currentSegmentIndex < segments.length - 1) {
           setCurrentSegmentIndex(prev => prev + 1);
@@ -190,14 +196,14 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
 
   const onAudioError = (e: React.SyntheticEvent<HTMLAudioElement, Event>) => {
       const target = e.target as HTMLAudioElement;
-      // Ignore if src was cleared intentionally or if it's the window url (init state)
       if (!target.src || target.src === window.location.href) return;
       
-      console.warn("Media Error:", target.error);
+      console.warn("Media Error Event:", target.error);
       setIsLoadingAudio(false);
+      setMediaError("Audio Unavailable");
       
-      // Instead of stopping, try to fallback to timer mode so presentation continues
-      const simulatedDuration = Math.max(5000, segment.text.length * 50);
+      // Fallback to timer
+      const simulatedDuration = Math.max(5000, segment.text.length * 60);
       noAudioTimeoutRef.current = setTimeout(() => {
           handleSegmentComplete();
       }, simulatedDuration);
@@ -247,11 +253,10 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
 
   const overallProgress = ((currentSegmentIndex) / (segments.length - 1 || 1)) * 100;
 
-  // RENDER USING PORTAL FOR TRUE FULLSCREEN OVERLAY
   return createPortal(
     <div 
         ref={playerContainerRef}
-        className="fixed inset-0 z-[9999] bg-black text-white w-full h-[100dvh] overflow-hidden flex flex-col font-sans"
+        className="fixed inset-0 z-[9999] bg-black text-white w-full h-[100dvh] overflow-hidden flex flex-col font-sans select-none"
         onClick={() => togglePlay()}
     >
       <audio 
@@ -285,6 +290,14 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
             </div>
         )}
       </div>
+
+      {/* ERROR / STATUS NOTIFICATIONS */}
+      {mediaError && isPlaying && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 bg-red-500/80 backdrop-blur text-white px-4 py-2 rounded-full text-xs font-bold flex items-center gap-2 animate-bounce">
+              <AlertTriangle className="w-4 h-4" />
+              {mediaError} - Skipping...
+          </div>
+      )}
 
       {/* HEADER */}
       <div className={`absolute top-0 left-0 right-0 p-4 z-50 flex justify-between items-start transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
@@ -323,13 +336,13 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
 
       {/* BLOCKED AUDIO OVERLAY - MUST BE CLICKED */}
       {audioBlocked && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-md">
              <button 
                 onClick={(e) => {
                     e.stopPropagation();
                     setIsPlaying(true);
                 }}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-full font-bold text-lg shadow-xl animate-bounce flex items-center gap-3"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-full font-bold text-lg shadow-xl animate-bounce flex items-center gap-3 transform hover:scale-105 transition-transform"
              >
                 <Volume2 className="w-6 h-6" />
                 Tap to Enable Audio
@@ -337,7 +350,7 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
           </div>
       )}
       
-      {isLoadingAudio && isPlaying && (
+      {isLoadingAudio && isPlaying && !mediaError && (
            <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
               <div className="bg-black/50 backdrop-blur-sm px-6 py-3 rounded-full border border-white/10 animate-pulse flex items-center gap-3">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -347,8 +360,8 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
       )}
 
       {/* TOUCH ZONES */}
-      <div className="absolute inset-y-0 left-0 w-[20%] z-20" onClick={handlePrev} />
-      <div className="absolute inset-y-0 right-0 w-[20%] z-20" onClick={handleNext} />
+      <div className="absolute inset-y-0 left-0 w-[20%] z-20 cursor-w-resize" onClick={handlePrev} />
+      <div className="absolute inset-y-0 right-0 w-[20%] z-20 cursor-e-resize" onClick={handleNext} />
 
       {/* SUBTITLE AREA */}
       <div className="absolute bottom-16 left-0 right-0 px-6 z-40 flex flex-col items-center pointer-events-none pb-4">

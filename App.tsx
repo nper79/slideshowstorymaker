@@ -439,15 +439,18 @@ export default function App() {
     if (!file) return;
     addToast("Importing project...", "info");
     try {
-      const data = await StorageService.importProject(file);
+      // Updated to receive warnings
+      const { data, warnings } = await StorageService.importProject(file);
+      
       setStoryData(data);
       setStatus(ProcessingStatus.READY);
       setActiveTab(Tab.STORYBOARD);
-      addToast("Project imported successfully", "success");
       
-      // Check for audio issues
-      const segmentsWithMissingAudio = data.segments.filter(s => s.audioUrl === undefined && s.text && s.text.length > 0);
-      // We don't really know if they *should* have audio, but if URLs were cleaned by storage service, we might want to hint
+      if (warnings && warnings.length > 0) {
+          warnings.forEach(w => addToast(w, "info"));
+      } else {
+          addToast("Project imported successfully", "success");
+      }
       
     } catch (e) {
       handleError(e, "Failed to import project");

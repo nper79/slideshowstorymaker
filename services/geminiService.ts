@@ -316,6 +316,8 @@ export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000
   // Check if already WAV (RIFF header)
   if (audioData.byteLength >= 4) {
     const view = new DataView(audioData);
+    // RIFF is 0x52494646 (Big Endian logic for string check)
+    // But getUint32(0, false) reads Big Endian.
     if (view.getUint32(0, false) === 0x52494646) {
        return new Blob([audioData], { type: 'audio/wav' });
     }

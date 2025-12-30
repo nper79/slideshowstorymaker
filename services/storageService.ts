@@ -67,12 +67,15 @@ export const exportProject = async (storyData: StoryData) => {
             console.warn(`Failed to export audio for segment ${segment.id}`, e);
             // Delete broken URL to avoid import errors later
             delete segment.audioUrl;
+            delete segment.audioDuration;
         }
     }
 
     // Clean up
     delete segment.generatedImageUrl;
     delete segment.imageOptions;
+    // Remove generating flags
+    delete segment.isGenerating;
   }
 
   // Add the JSON file
@@ -83,8 +86,9 @@ export const exportProject = async (storyData: StoryData) => {
   saveAs(content, `storyboard_project_${new Date().toISOString().slice(0, 10)}.zip`);
 };
 
-export const importProject = async (file: File): Promise<StoryData> => {
+export const importProject = async (file: File): Promise<{ data: StoryData, warnings: string[] }> => {
   const zip = await JSZip.loadAsync(file);
+  const warnings: string[] = [];
   
   const jsonFile = zip.file("story_data.json");
   if (!jsonFile) throw new Error("Invalid project file: story_data.json not found");
@@ -121,13 +125,19 @@ export const importProject = async (file: File): Promise<StoryData> => {
   // Restore images and audio
   await Promise.all(storyData.characters.map(async (c: any) => {
     if (c.imageUrl) c.imageUrl = await reconstructImage(c.imageUrl);
+    c.isGenerating = false;
   }));
 
   await Promise.all(storyData.settings.map(async (s: any) => {
     if (s.imageUrl) s.imageUrl = await reconstructImage(s.imageUrl);
+    s.isGenerating = false;
   }));
 
+  let brokenAudioCount = 0;
+
   await Promise.all(storyData.segments.map(async (s: any) => {
+    s.isGenerating = false; // Reset state
+    
     // Images
     if (s.generatedImageUrls && Array.isArray(s.generatedImageUrls)) {
         const restoredUrls = await Promise.all(s.generatedImageUrls.map((url: string) => reconstructImage(url)));
@@ -147,14 +157,19 @@ export const importProject = async (file: File): Promise<StoryData> => {
     if (s.audioUrl) {
         if (s.audioUrl.startsWith('assets/')) {
             s.audioUrl = await reconstructAudio(s.audioUrl);
-        } else if (s.audioUrl.startsWith('blob:')) {
-            // Found a broken session link (likely from a previous failed save/import)
-            console.warn("Found expired blob URL in import, clearing:", s.audioUrl);
+        } else if (s.audioUrl.startsWith('blob:') || s.audioUrl.startsWith('http')) {
+            // Found a broken/temporary link. 
+            // We MUST clear this so the UI allows regeneration.
+            brokenAudioCount++;
             s.audioUrl = undefined;
             s.audioDuration = undefined;
         }
     }
   }));
 
-  return storyData as StoryData;
+  if (brokenAudioCount > 0) {
+      warnings.push(`Restored project, but removed ${brokenAudioCount} expired audio links. Please click 'Generate Audio' to recreate them.`);
+  }
+
+  return { data: storyData as StoryData, warnings };
 };

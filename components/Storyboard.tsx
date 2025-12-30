@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download, Trash2 } from 'lucide-react';
+import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, VolumeX, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download, Trash2, AlertCircle } from 'lucide-react';
 import { StorySegment, Character, Setting, AspectRatio, ImageSize } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -179,11 +179,27 @@ const Storyboard: React.FC<StoryboardProps> = ({
                             <button 
                               onClick={() => handleAudioClick(segment.id, segment.text)}
                               disabled={generatingAudioId === segment.id}
-                              className="text-slate-400 hover:text-white transition-colors flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-700"
-                              title={segment.audioUrl ? "Play Audio" : "Generate Audio"}
+                              className={`
+                                transition-colors flex items-center gap-2 px-2 py-1 rounded
+                                ${segment.audioUrl 
+                                    ? 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700' 
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-500 border border-indigo-500 shadow-md animate-pulse'}
+                              `}
+                              title={segment.audioUrl ? "Play Audio" : "Audio Missing - Click to Generate"}
                             >
-                              {generatingAudioId === segment.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
-                              {segment.audioUrl ? <span className="text-xs">Play</span> : <span className="text-xs">Generate Audio</span>}
+                              {generatingAudioId === segment.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" /> 
+                              ) : segment.audioUrl ? (
+                                <Volume2 className="w-4 h-4" />
+                              ) : (
+                                <VolumeX className="w-4 h-4" />
+                              )}
+                              
+                              {segment.audioUrl ? (
+                                <span className="text-xs">Play</span>
+                              ) : (
+                                <span className="text-xs font-bold">Generate Audio</span>
+                              )}
                             </button>
                             
                             {segment.audioUrl && (
@@ -204,6 +220,12 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                       <Trash2 className="w-4 h-4" />
                                   </button>
                                 </>
+                            )}
+                            
+                            {!segment.audioUrl && (
+                                <span className="text-xs text-red-400 flex items-center gap-1">
+                                    <AlertCircle className="w-3 h-3" /> Missing
+                                </span>
                             )}
                          </div>
                     </div>
