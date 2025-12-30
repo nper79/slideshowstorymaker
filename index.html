@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
     <title>StoryBoard AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&display=swap');
       
       /* Force Solid Background */
       html, body {
@@ -52,6 +54,14 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #64748b; 
       }
+      
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 10px;
+      }
 
       /* Ken Burns Effect */
       @keyframes ken-burns {
@@ -93,7 +103,8 @@
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "jszip": "https://esm.sh/jszip@3.10.1",
     "file-saver": "https://esm.sh/file-saver@2.0.5",
-    "html2canvas": "https://esm.sh/html2canvas@1.4.1"
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1",
+    "react-dom": "https://esm.sh/react-dom@^19.2.3"
   }
 }
 </script>

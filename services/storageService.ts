@@ -5,6 +5,12 @@ import { StoryData, Character, Setting, StorySegment } from '../types';
 // Helper to extract base64 data
 const getBase64Data = (dataUrl: string) => dataUrl.split(',')[1];
 
+// Helper to fetch blob data from a blob URL
+const fetchBlobData = async (blobUrl: string): Promise<Blob> => {
+  const response = await fetch(blobUrl);
+  return await response.blob();
+};
+
 export const exportProject = async (storyData: StoryData) => {
   const zip = new JSZip();
   const assetsFolder = zip.folder("assets");
@@ -12,7 +18,7 @@ export const exportProject = async (storyData: StoryData) => {
   // Clone data to avoid mutating state
   const dataToSave = JSON.parse(JSON.stringify(storyData));
   
-  // Process Characters
+  // Process Characters (Images are Data URIs - Sync)
   dataToSave.characters.forEach((char: Character) => {
     if (char.imageUrl && char.imageUrl.startsWith('data:')) {
       const fileName = `char_${char.id}.png`;
@@ -21,7 +27,7 @@ export const exportProject = async (storyData: StoryData) => {
     }
   });
 
-  // Process Settings
+  // Process Settings (Images are Data URIs - Sync)
   dataToSave.settings.forEach((setting: Setting) => {
     if (setting.imageUrl && setting.imageUrl.startsWith('data:')) {
       const fileName = `setting_${setting.id}.png`;
@@ -30,10 +36,10 @@ export const exportProject = async (storyData: StoryData) => {
     }
   });
 
-  // Process Segments (Updated for Grid System)
-  // Cast to any to handle legacy property cleanup
-  dataToSave.segments.forEach((segment: any) => {
-    // 1. Save the selected/cropped final images (Array)
+  // Process Segments (Async needed for Blob URLs)
+  // We use a regular for loop to handle async await
+  for (const segment of dataToSave.segments) {
+    // 1. Images (Data URIs - Sync)
     if (segment.generatedImageUrls && Array.isArray(segment.generatedImageUrls)) {
         segment.generatedImageUrls.forEach((url: string, index: number) => {
             if (url && url.startsWith('data:')) {
@@ -44,26 +50,30 @@ export const exportProject = async (storyData: StoryData) => {
         });
     }
 
-    // 1.1 Save legacy single image if exists (and remove it)
-    if (segment.generatedImageUrl && segment.generatedImageUrl.startsWith('data:')) {
-        // We do not save this as generatedImageUrl to avoid confusion on import, 
-        // unless we want to migrate it to generatedImageUrls.
-        // For now, let's just delete it to clean up the export file.
-        delete segment.generatedImageUrl;
-    }
-    
-    // 2. Save the MASTER GRID image
     if (segment.masterGridImageUrl && segment.masterGridImageUrl.startsWith('data:')) {
       const fileName = `segment_${segment.id}_master_grid.png`;
       assetsFolder?.file(fileName, getBase64Data(segment.masterGridImageUrl), { base64: true });
       segment.masterGridImageUrl = `assets/${fileName}`;
     }
     
-    // Clean up old fields
-    if (segment.imageOptions) {
-      delete segment.imageOptions;
+    // 2. Audio (Blob URLs - Async)
+    if (segment.audioUrl && segment.audioUrl.startsWith('blob:')) {
+        try {
+            const fileName = `segment_${segment.id}_audio.wav`;
+            const blob = await fetchBlobData(segment.audioUrl);
+            assetsFolder?.file(fileName, blob); // JSZip supports Blobs directly
+            segment.audioUrl = `assets/${fileName}`;
+        } catch (e) {
+            console.warn(`Failed to export audio for segment ${segment.id}`, e);
+            // Delete broken URL to avoid import errors later
+            delete segment.audioUrl;
+        }
     }
-  });
+
+    // Clean up
+    delete segment.generatedImageUrl;
+    delete segment.imageOptions;
+  }
 
   // Add the JSON file
   zip.file("story_data.json", JSON.stringify(dataToSave, null, 2));
@@ -82,7 +92,7 @@ export const importProject = async (file: File): Promise<StoryData> => {
   const jsonContent = await jsonFile.async("string");
   const storyData = JSON.parse(jsonContent);
 
-  // Helper to reconstruct Base64
+  // Helper to reconstruct Base64 Image
   const reconstructImage = async (path: string): Promise<string | undefined> => {
     if (!path || !path.startsWith('assets/')) return path;
     const fileName = path.split('/')[1];
@@ -94,7 +104,21 @@ export const importProject = async (file: File): Promise<StoryData> => {
     return undefined;
   };
 
-  // Restore images
+  // Helper to reconstruct Audio Blob URL
+  const reconstructAudio = async (path: string): Promise<string | undefined> => {
+      if (!path || !path.startsWith('assets/')) return path; 
+      const fileName = path.split('/')[1];
+      const audioFile = zip.folder("assets")?.file(fileName);
+      if (audioFile) {
+          const blob = await audioFile.async("blob");
+          // Re-create the WAV type explicitly just in case
+          const wavBlob = new Blob([blob], { type: 'audio/wav' }); 
+          return URL.createObjectURL(wavBlob);
+      }
+      return undefined;
+  };
+
+  // Restore images and audio
   await Promise.all(storyData.characters.map(async (c: any) => {
     if (c.imageUrl) c.imageUrl = await reconstructImage(c.imageUrl);
   }));
@@ -104,13 +128,11 @@ export const importProject = async (file: File): Promise<StoryData> => {
   }));
 
   await Promise.all(storyData.segments.map(async (s: any) => {
-    // Restore cropped final images (Array)
+    // Images
     if (s.generatedImageUrls && Array.isArray(s.generatedImageUrls)) {
         const restoredUrls = await Promise.all(s.generatedImageUrls.map((url: string) => reconstructImage(url)));
         s.generatedImageUrls = restoredUrls.filter((u): u is string => !!u);
     }
-
-    // Legacy support: generatedImageUrl
     if (s.generatedImageUrl) {
         const restored = await reconstructImage(s.generatedImageUrl);
         if (restored) {
@@ -119,9 +141,19 @@ export const importProject = async (file: File): Promise<StoryData> => {
         }
         delete s.generatedImageUrl;
     }
-
-    // Restore master grid
     if (s.masterGridImageUrl) s.masterGridImageUrl = await reconstructImage(s.masterGridImageUrl);
+
+    // Audio Recovery
+    if (s.audioUrl) {
+        if (s.audioUrl.startsWith('assets/')) {
+            s.audioUrl = await reconstructAudio(s.audioUrl);
+        } else if (s.audioUrl.startsWith('blob:')) {
+            // Found a broken session link (likely from a previous failed save/import)
+            console.warn("Found expired blob URL in import, clearing:", s.audioUrl);
+            s.audioUrl = undefined;
+            s.audioDuration = undefined;
+        }
+    }
   }));
 
   return storyData as StoryData;

@@ -317,33 +317,17 @@ export default function App() {
           // Generate raw buffer
           const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
           
+          if (!audioBuffer || audioBuffer.byteLength === 0) {
+              throw new Error("Empty audio buffer received");
+          }
+
           // Create PROPER Wav Blob for download/playback
           const blob = GeminiService.createWavBlob(audioBuffer);
           const url = URL.createObjectURL(blob);
           
-          // Get duration
-          const audio = new Audio(url);
-          
-          // Safer loading sequence
-          const loaded = await new Promise((resolve) => {
-              audio.onloadedmetadata = () => resolve(true);
-              audio.onerror = () => resolve(false); 
-              // Short timeout for metadata
-              setTimeout(() => resolve(false), 2000);
-          });
-          
-          if (!loaded) {
-              console.warn("Audio failed to load metadata. Source format may be unsupported by browser.");
-              // Do not update state if audio is broken to allow retry
-              setStoryData(prev => prev ? ({
-                 ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-              }) : null);
-              return;
-          }
-
-          let duration = audio.duration;
-          // Fix for Infinity/NaN durations in some browsers for Blob URLs
-          if (!Number.isFinite(duration)) duration = 10;
+          // Calculate duration mathematically (SampleRate=24000, Channels=1, Bits=16/2bytes)
+          // 48000 bytes per second
+          const duration = audioBuffer.byteLength / 48000;
 
           // Update state with URL and duration
           setStoryData(prev => prev ? ({
@@ -358,9 +342,10 @@ export default function App() {
 
           // Play immediately
           try {
+             const audio = new Audio(url);
              await audio.play();
           } catch(err) {
-             console.error("Auto-play failed", err);
+             console.warn("Auto-play failed (user interaction required or format issue)", err);
           }
 
       } catch (e) {

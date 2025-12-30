@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, ChevronLeft, ChevronRight, Play, Pause, SkipForward } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize2, Minimize2 } from 'lucide-react';
 import { StorySegment } from '../types';
 
 interface SlideshowPlayerProps {
@@ -18,234 +19,362 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [animationClass, setAnimationClass] = useState('animate-ken-burns');
+  const [showControls, setShowControls] = useState(true);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const noAudioTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   
   const segment = segments[currentSegmentIndex];
   const images = segment.generatedImageUrls && segment.generatedImageUrls.length > 0 
     ? segment.generatedImageUrls 
     : [];
 
-  // Toggle animation direction for variety on slide change
-  useEffect(() => {
-    // Randomize between zoom in and zoom out (reverse)
-    const variant = Math.random() > 0.5 ? 'animate-ken-burns' : 'animate-ken-burns-reverse';
-    setAnimationClass(variant);
-  }, [currentSegmentIndex, currentImageIndex]);
+  const currentImage = images.length > 0 ? images[currentImageIndex] : undefined;
 
-  // 1. Initialize Audio on Segment Change
+  // --- FULLSCREEN LOGIC ---
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+        playerContainerRef.current?.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+  };
+
   useEffect(() => {
-      // Stop previous
-      if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current = null;
-      }
+      const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+      document.addEventListener('fullscreenchange', handleFsChange);
+      return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  // --- AUDIO CYCLE MANAGEMENT ---
+
+  useEffect(() => {
+      // Clear any fake timers
+      if (noAudioTimeoutRef.current) clearTimeout(noAudioTimeoutRef.current);
+      setAudioBlocked(false); // Reset blocked state on slide change
+
+      const audio = audioRef.current;
+      if (!audio) return;
+
       setCurrentImageIndex(0);
+      setIsLoadingAudio(true);
 
-      // Setup new audio if available
-      if (segment.audioUrl) {
-          const audio = new Audio(segment.audioUrl);
-          audioRef.current = audio;
-          
-          audio.onended = handleAudioEnded;
+      const handleSourceChange = async () => {
+          if (segment.audioUrl) {
+              // Validate URL before assigning (prevents some MediaErrors)
+              if (segment.audioUrl.startsWith('blob:') && segment.audioUrl.length < 10) {
+                 // Invalid blob, skip audio
+                 handleNoAudioFallback();
+                 return;
+              }
+
+              // Standard Audio Playback
+              try {
+                  if (audio.src !== segment.audioUrl) {
+                      audio.src = segment.audioUrl;
+                      audio.load();
+                  } else {
+                      if (isPlaying) attemptPlay(audio);
+                  }
+              } catch (e) {
+                  console.error("Audio Load Error:", e);
+                  handleNoAudioFallback();
+              }
+          } else {
+              handleNoAudioFallback();
+          }
+      };
+
+      const handleNoAudioFallback = () => {
+          if (!audio) return;
+          audio.pause();
+          audio.removeAttribute('src'); 
+          setIsLoadingAudio(false);
           
           if (isPlaying) {
-              audio.play().catch(e => console.error("Auto-play failed", e));
+              const simulatedDuration = Math.max(5000, segment.text.length * 50);
+              noAudioTimeoutRef.current = setTimeout(() => {
+                  handleSegmentComplete();
+              }, simulatedDuration);
+          }
+      }
+
+      handleSourceChange();
+
+      return () => {
+         if (noAudioTimeoutRef.current) clearTimeout(noAudioTimeoutRef.current);
+      };
+  }, [currentSegmentIndex, segment.audioUrl]);
+
+  // --- PLAY/PAUSE SYNC ---
+  
+  const attemptPlay = async (audio: HTMLAudioElement) => {
+      try {
+          await audio.play();
+          setAudioBlocked(false);
+      } catch (error: any) {
+          if (error.name === 'NotAllowedError') {
+              console.warn("Autoplay blocked. User interaction required.");
+              setAudioBlocked(true);
+              setIsPlaying(false); 
+          } else {
+              console.warn("Playback error:", error);
+              setIsPlaying(false);
+          }
+      }
+  };
+  
+  useEffect(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      if (segment.audioUrl) {
+          if (isPlaying) {
+              attemptPlay(audio);
+          } else {
+              audio.pause();
           }
       } else {
-          // No audio? Just wait a default 5s then move on if playing
-          if (isPlaying) {
-             const timer = setTimeout(handleAudioEnded, 5000);
-             return () => clearTimeout(timer);
+          // Timer logic for non-audio slides
+          if (isPlaying && !noAudioTimeoutRef.current) {
+              const simulatedDuration = Math.max(5000, segment.text.length * 50);
+              noAudioTimeoutRef.current = setTimeout(() => {
+                  handleSegmentComplete();
+              }, simulatedDuration);
+          } else if (!isPlaying && noAudioTimeoutRef.current) {
+              clearTimeout(noAudioTimeoutRef.current);
+              noAudioTimeoutRef.current = null;
           }
       }
-  }, [currentSegmentIndex]);
+  }, [isPlaying, currentSegmentIndex]);
 
-  // 2. Handle Image Cycling (Visual Pacing)
+  // --- IMAGE CAROUSEL ---
+
   useEffect(() => {
-     if (!isPlaying || images.length <= 1 || !segment.audioUrl) return;
+     if (!isPlaying || images.length <= 1) return;
 
-     // Calculate time per slide
-     // Add a small "breathing room" to total duration (e.g. +1s) so the last image lingers slightly
-     // Ensure duration is finite (fallback to 10s if Infinity/NaN)
      const safeDuration = (segment.audioDuration && Number.isFinite(segment.audioDuration)) ? segment.audioDuration : 10;
-     const duration = safeDuration + 1.0; 
-     
-     const timePerSlide = (duration * 1000) / images.length;
+     const timePerSlide = (safeDuration * 1000) / images.length;
 
      const interval = setInterval(() => {
          setCurrentImageIndex(prev => {
              const next = prev + 1;
-             return next >= images.length ? prev : next;
+             return next >= images.length ? 0 : next;
          });
      }, timePerSlide);
 
      return () => clearInterval(interval);
+  }, [currentSegmentIndex, isPlaying, images.length, segment.audioDuration]);
 
-  }, [currentSegmentIndex, isPlaying, images.length, segment.audioUrl, segment.audioDuration]);
+  // --- HANDLERS ---
 
-  // 3. Handle Play/Pause Toggles
-  useEffect(() => {
-      if (audioRef.current) {
-          if (isPlaying) {
-              audioRef.current.play().catch(console.error);
-          } else {
-              audioRef.current.pause();
-          }
-      }
-  }, [isPlaying]);
-
-  const handleAudioEnded = () => {
-      // Audio finished. Move to next segment.
+  const handleSegmentComplete = () => {
       if (currentSegmentIndex < segments.length - 1) {
           setCurrentSegmentIndex(prev => prev + 1);
-          setCurrentImageIndex(0);
       } else {
           setIsPlaying(false);
+          setShowControls(true);
       }
   };
 
-  const nextSlide = () => {
-    if (currentSegmentIndex < segments.length - 1) {
-      setCurrentSegmentIndex(prev => prev + 1);
-    }
+  const onAudioEnded = () => {
+      handleSegmentComplete();
   };
 
-  const prevSlide = () => {
-    if (currentSegmentIndex > 0) {
-      setCurrentSegmentIndex(prev => prev - 1);
-    }
+  const onAudioError = (e: React.SyntheticEvent<HTMLAudioElement, Event>) => {
+      const target = e.target as HTMLAudioElement;
+      // Ignore if src was cleared intentionally or if it's the window url (init state)
+      if (!target.src || target.src === window.location.href) return;
+      
+      console.warn("Media Error:", target.error);
+      setIsLoadingAudio(false);
+      
+      // Instead of stopping, try to fallback to timer mode so presentation continues
+      const simulatedDuration = Math.max(5000, segment.text.length * 50);
+      noAudioTimeoutRef.current = setTimeout(() => {
+          handleSegmentComplete();
+      }, simulatedDuration);
   };
 
-  const togglePlay = () => setIsPlaying(!isPlaying);
-
-  const stopPlayback = () => {
-    setIsPlaying(false);
-    if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-    }
-    onStopAudio(); // Stop any global audio service context
+  const onCanPlay = () => {
+      setIsLoadingAudio(false);
+      if (isPlaying && audioRef.current) {
+          attemptPlay(audioRef.current);
+      }
   };
 
-  const currentImage = images.length > 0 ? images[currentImageIndex] : undefined;
+  const togglePlay = (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setIsPlaying(!isPlaying);
+      flashControls();
+  };
 
-  return (
-    <div className="fixed inset-0 z-[100] bg-black text-white flex flex-col animate-fade-in">
-      {/* Top Bar */}
-      <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center z-10 bg-gradient-to-b from-black/80 to-transparent">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium opacity-70">
-            Scene {currentSegmentIndex + 1} / {segments.length}
-          </span>
-          {images.length > 1 && (
-               <span className="text-xs bg-white/10 px-2 py-1 rounded">
-                   Frame {currentImageIndex + 1} / {images.length}
-               </span>
-          )}
-        </div>
-        <button 
-          onClick={() => { stopPlayback(); onClose(); }}
-          className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-        >
-          <X className="w-6 h-6" />
-        </button>
-      </div>
+  const handleNext = (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (currentSegmentIndex < segments.length - 1) {
+          setCurrentSegmentIndex(prev => prev + 1);
+      }
+  };
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col justify-center items-center p-4 md:p-8 relative">
-        {/* Background Blur */}
-        {currentImage && (
-          <div 
-            className="absolute inset-0 z-0 opacity-20 blur-3xl scale-110 transition-all duration-1000"
-            style={{ 
-              backgroundImage: `url(${currentImage})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center'
-            }}
-          />
-        )}
+  const handlePrev = (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (currentSegmentIndex > 0) {
+          setCurrentSegmentIndex(prev => prev - 1);
+      }
+  };
 
-        <div className="flex flex-col md:flex-row max-w-7xl w-full h-full md:h-auto gap-8 md:gap-12 items-center z-10">
-          
-          {/* Image */}
-          <div className="flex-1 flex justify-center items-center w-full max-h-[70vh] md:max-h-[85vh]">
-            {/* Removed hardcoded aspect ratio to let image dims dictate. Added max-h constraint. */}
-            <div className="relative rounded-lg overflow-hidden shadow-2xl shadow-black/50 border border-white/10 w-auto h-auto max-w-full max-h-full">
-               {currentImage ? (
-                 <img 
-                   key={`${currentSegmentIndex}-${currentImageIndex}`} // Force remount to restart CSS animation
-                   src={currentImage} 
-                   alt={`Scene ${currentSegmentIndex + 1}`} 
-                   className={`w-full h-full object-cover bg-black ${animationClass}`}
-                   style={{ minHeight: '300px' }} 
+  const handleClose = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsPlaying(false);
+      onStopAudio();
+      onClose();
+  };
+
+  const flashControls = () => {
+      setShowControls(true);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = setTimeout(() => {
+          if (isPlaying) setShowControls(false);
+      }, 2500);
+  };
+
+  const overallProgress = ((currentSegmentIndex) / (segments.length - 1 || 1)) * 100;
+
+  // RENDER USING PORTAL FOR TRUE FULLSCREEN OVERLAY
+  return createPortal(
+    <div 
+        ref={playerContainerRef}
+        className="fixed inset-0 z-[9999] bg-black text-white w-full h-[100dvh] overflow-hidden flex flex-col font-sans"
+        onClick={() => togglePlay()}
+    >
+      <audio 
+          ref={audioRef}
+          onEnded={onAudioEnded}
+          onError={onAudioError}
+          onCanPlay={onCanPlay}
+          className="hidden"
+          preload="auto"
+      />
+
+      {/* VISUAL LAYER */}
+      <div className="absolute inset-0 z-0 bg-slate-900">
+        {currentImage ? (
+             <div className="absolute inset-0 animate-fade-in">
+                 <div 
+                    className="absolute inset-0 blur-3xl opacity-50"
+                    style={{ backgroundImage: `url(${currentImage})`, backgroundSize: 'cover' }}
                  />
-               ) : (
-                 <div className="w-full h-full min-h-[400px] min-w-[300px] bg-slate-900 flex items-center justify-center text-slate-500 p-8 text-center">
-                   Generating Scene...
-                 </div>
-               )}
+                 <img 
+                    key={`${currentSegmentIndex}-${currentImageIndex}`}
+                    src={currentImage} 
+                    alt="Scene"
+                    className="w-full h-full object-contain md:object-cover animate-ken-burns"
+                 />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-transparent to-black/30" />
+             </div>
+        ) : (
+            <div className="h-full w-full flex items-center justify-center bg-black">
+                <div className="text-slate-500 animate-pulse text-sm tracking-widest uppercase">Visual Loading...</div>
             </div>
-          </div>
-
-          {/* Text */}
-          <div className="flex-1 max-w-2xl space-y-6 text-center md:text-left">
-            <p className="text-xl md:text-2xl lg:text-3xl font-serif leading-relaxed drop-shadow-lg text-slate-100">
-              "{segment.text}"
-            </p>
-            <div className="text-sm text-slate-400 font-sans tracking-wide uppercase">
-               {segment.quadrant} &bull; Scene {currentSegmentIndex + 1}
-            </div>
-            {!segment.audioUrl && (
-                <div className="text-amber-500 text-sm">
-                    ⚠️ Audio not generated for this scene.
-                </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="absolute bottom-0 left-0 right-0 p-8 flex justify-center items-center gap-8 bg-gradient-to-t from-black/90 to-transparent z-10">
-        <button 
-          onClick={prevSlide}
-          disabled={currentSegmentIndex === 0}
-          className="p-3 rounded-full hover:bg-white/10 disabled:opacity-30 transition-all"
-        >
-          <ChevronLeft className="w-8 h-8" />
-        </button>
-
-        <button 
-          onClick={togglePlay}
-          className={`w-16 h-16 rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.3)] ${isPlaying ? 'bg-slate-700 text-white' : 'bg-white text-black'}`}
-        >
-          {isPlaying ? (
-            <Pause className="w-6 h-6 fill-current" />
-          ) : (
-            <Play className="w-6 h-6 fill-current ml-1" />
-          )}
-        </button>
-
-        {isPlaying && (
-           <button 
-             onClick={handleAudioEnded}
-             className="w-12 h-12 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center hover:scale-105 transition-transform"
-             title="Skip Scene"
-           >
-             <SkipForward className="w-5 h-5 fill-current" />
-           </button>
         )}
-
-        <button 
-          onClick={nextSlide}
-          disabled={currentSegmentIndex === segments.length - 1}
-          className="p-3 rounded-full hover:bg-white/10 disabled:opacity-30 transition-all"
-        >
-          <ChevronRight className="w-8 h-8" />
-        </button>
       </div>
-    </div>
+
+      {/* HEADER */}
+      <div className={`absolute top-0 left-0 right-0 p-4 z-50 flex justify-between items-start transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="flex gap-1 flex-1 max-w-md">
+             {segments.map((_, idx) => (
+                 <div key={idx} className="h-1 flex-1 rounded-full bg-white/20 overflow-hidden mx-0.5">
+                     <div className={`h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.8)] transition-all duration-300 ${idx <= currentSegmentIndex ? 'w-full' : 'w-0'}`} />
+                 </div>
+             ))}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+                className="ml-4 bg-black/40 backdrop-blur-md rounded-full p-2 text-white/90 hover:bg-white/10 transition-colors"
+            >
+                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+            </button>
+            <button 
+                onClick={handleClose}
+                className="bg-black/40 backdrop-blur-md rounded-full p-2 text-white/90 hover:bg-white/10 transition-colors"
+            >
+                <X className="w-5 h-5" />
+            </button>
+          </div>
+      </div>
+
+      {/* CENTER STATE OVERLAY */}
+      {!isPlaying && !audioBlocked && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+              <div className="bg-white/10 backdrop-blur-md p-8 rounded-full border border-white/20 shadow-2xl animate-fade-in">
+                  <Play className="w-12 h-12 fill-white text-white ml-2" />
+              </div>
+          </div>
+      )}
+
+      {/* BLOCKED AUDIO OVERLAY - MUST BE CLICKED */}
+      {audioBlocked && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+             <button 
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setIsPlaying(true);
+                }}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-full font-bold text-lg shadow-xl animate-bounce flex items-center gap-3"
+             >
+                <Volume2 className="w-6 h-6" />
+                Tap to Enable Audio
+             </button>
+          </div>
+      )}
+      
+      {isLoadingAudio && isPlaying && (
+           <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+              <div className="bg-black/50 backdrop-blur-sm px-6 py-3 rounded-full border border-white/10 animate-pulse flex items-center gap-3">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm font-medium">Buffering Audio...</span>
+              </div>
+          </div>
+      )}
+
+      {/* TOUCH ZONES */}
+      <div className="absolute inset-y-0 left-0 w-[20%] z-20" onClick={handlePrev} />
+      <div className="absolute inset-y-0 right-0 w-[20%] z-20" onClick={handleNext} />
+
+      {/* SUBTITLE AREA */}
+      <div className="absolute bottom-16 left-0 right-0 px-6 z-40 flex flex-col items-center pointer-events-none pb-4">
+          <div className={`mb-4 transition-opacity duration-500 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+               <span className="bg-black/60 backdrop-blur-md text-white/90 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border border-white/10 shadow-lg">
+                 Scene {currentSegmentIndex + 1} • {segment.timeOfDay}
+               </span>
+          </div>
+
+          <div className="w-full max-w-4xl text-center">
+              <div className="inline-block bg-black/60 backdrop-blur-md text-white/90 text-sm md:text-base leading-relaxed px-6 py-4 rounded-xl shadow-2xl border border-white/5 font-serif">
+                 {segment.text}
+              </div>
+          </div>
+      </div>
+
+      {/* BOTTOM PROGRESS BAR */}
+      <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-white/10 z-50">
+          <div 
+             className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-300 ease-linear"
+             style={{ width: `${overallProgress}%` }}
+          />
+      </div>
+
+    </div>,
+    document.body
   );
 };
 

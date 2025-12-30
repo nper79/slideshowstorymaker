@@ -7,41 +7,36 @@ const MODEL_TEXT_ANALYSIS = 'gemini-3-pro-preview';
 const MODEL_IMAGE_GEN = 'gemini-3-pro-image-preview'; 
 const MODEL_IMAGE_GEN_FALLBACK = 'gemini-2.5-flash-image'; 
 const MODEL_IMAGE_EDIT = 'gemini-3-pro-image-preview'; 
-// Corrected to the supported TTS model
 const MODEL_TTS = 'gemini-2.5-flash-preview-tts';
 
 export const VOICES = [
-  // Classic Voices (Verified supported)
   { name: 'Puck', gender: 'Male', style: 'Neutral & Clear' },
   { name: 'Charon', gender: 'Male', style: 'Deep & Grave' },
   { name: 'Kore', gender: 'Female', style: 'Soothing & Calm' },
   { name: 'Fenrir', gender: 'Male', style: 'Intense & Resonant' },
   { name: 'Zephyr', gender: 'Female', style: 'Bright & Energetic' },
-  
-  // New Native Audio Voices (Verified supported)
   { name: 'Aoede', gender: 'Female', style: 'Confident & Professional' },
   { name: 'Iapetus', gender: 'Male', style: 'Deep & Steady' },
   { name: 'Umbriel', gender: 'Male', style: 'Resonant & Low' },
   { name: 'Algieba', gender: 'Male', style: 'Smooth & Deep' },
   { name: 'Despina', gender: 'Female', style: 'Warm & Smooth' },
   { name: 'Erinome', gender: 'Female', style: 'Clear & Balanced' },
-  // Replaced unsupported 'Himalia' with 'Leda'
   { name: 'Leda', gender: 'Female', style: 'Crisp & Open' }, 
   { name: 'Callirrhoe', gender: 'Female', style: 'Gentle & Soft' }
 ];
 
-let currentSource: AudioBufferSourceNode | null = null;
-let audioContext: AudioContext | null = null;
+// Replaced AudioBufferSourceNode with HTMLAudioElement for consistency with Blob URLs
+let currentAudio: HTMLAudioElement | null = null;
 
 export const stopAudio = () => {
-  if (currentSource) {
+  if (currentAudio) {
     try {
-      currentSource.stop();
-      currentSource.disconnect();
+      currentAudio.pause();
+      currentAudio.onended = null; // Remove listeners
+      currentAudio = null;
     } catch (e) {
       console.warn("Error stopping audio", e);
     }
-    currentSource = null;
   }
 };
 
@@ -115,14 +110,11 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             temporalLogic: { type: Type.STRING },
             timeOfDay: { type: Type.STRING },
             keyVisualAction: { type: Type.STRING },
-            
-            // GRID VARIATIONS FOR CONTACT SHEET
             gridVariations: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: "Generate 9 DISTINCT visual interpretations of the scene. Do NOT just change the camera angle. You MUST change the ACTION, the MOMENT, or the INTERACTION. Example: If text is 'She is at home', Panel 1: Sleeping in bed, Panel 2: Eating breakfast, Panel 3: Reading on couch. Each panel must be a valid interpretation of the text segment."
+              description: "Generate 9 DISTINCT visual interpretations of the scene."
             },
-
             structuredScene: {
               type: Type.OBJECT,
               properties: {
@@ -180,29 +172,14 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
     contents: `
 ${PRESERVATION_RULES}
 ${CONTEXT_RULES}
-# YOUR MISSION
-You are a **Forensic Text Segmenter** and **Creative Visual Director**.
-1. **SEGMENT**: Slice the story text into chunks.
-2. **VISUALIZE**: Create the \`structuredScene\`.
-3. **DIRECT (GRID)**: Create \`gridVariations\` (9 Panels).
-   - **MANDATE**: You are brainstorming 9 different ways to visualize this segment.
-   - **VARIETY**: Explore different ACTIONS and MOMENTS within the context of the text.
-   - **EXAMPLE**: If text is "He waited in the lobby", do NOT just show 9 angles of him sitting. Show: 1. Checking watch. 2. Pacing. 3. Drinking coffee. 4. Looking out window. 5. Sleeping...
-   - **FORMAT**: "Panel [1-9]: [Specific Action] in [Setting]. [Camera Detail]."
-
-## STORY:
-${storyText}
-## STYLE:
-${artStyle}
+Story: ${storyText}
+Style: ${artStyle}
     `,
     config: {
       responseMimeType: "application/json",
       responseSchema: schema,
       thinkingConfig: { thinkingBudget: 16384 },
-      systemInstruction: `You are an automated transcription and visualization engine. 
-      RULE 1: The 'text' property in the output MUST match the input text EXACTLY. 
-      RULE 2: For 'gridVariations', generate 9 DISTINCT scenarios/actions that fit the text. Do not repeat the same pose 9 times.
-      Style: ${artStyle}`
+      systemInstruction: `You are a forensic storyboard director. Split text into chunks (3-4 sentences max per chunk).`
     }
   });
 
@@ -210,31 +187,14 @@ ${artStyle}
   const data = JSON.parse(response.text);
 
   data.segments = data.segments.map((seg: any) => {
-     // Safety: Map legacy snake_case to camelCase if returned
-     if (seg.grid_variations && !seg.gridVariations) {
-        seg.gridVariations = seg.grid_variations;
-     }
-
+     if (seg.grid_variations && !seg.gridVariations) seg.gridVariations = seg.grid_variations;
      if (seg.structuredScene) {
         const s = seg.structuredScene;
         const compiledPrompt = `
-(TECHNICAL SPECS)
-Shot: ${s.camera.shot_type}, ${s.camera.angle}. Lens: ${s.camera.lens_characteristics}.
-Lighting: ${s.lighting.primary_source}. Colors: ${s.lighting.color_palette}. Shadows: ${s.lighting.shadows}.
-
-(SUBJECT)
-Appearance: ${s.subject_details.appearance}.
-Clothing: ${s.subject_details.clothing}.
-Expression: ${s.subject_details.expression}.
-
-(ENVIRONMENT & ATMOSPHERE)
-Setting: ${s.environment.setting}.
-Foreground: ${s.environment.foreground_elements.join(', ')}.
-Background: ${s.environment.background_elements.join(', ')}.
-Atmosphere: ${s.environment.weather_and_atmosphere}.
-
-(CONTEXT & LOGIC)
-${s.contextual_inference}
+Shot: ${s.camera.shot_type}, ${s.camera.angle}.
+Subject: ${s.subject_details.appearance}, ${s.subject_details.clothing}.
+Action: ${s.subject_details.expression}.
+Env: ${s.environment.setting}, ${s.environment.weather_and_atmosphere}.
         `.trim();
         return { ...seg, scenePrompt: compiledPrompt };
      }
@@ -244,214 +204,74 @@ ${s.contextual_inference}
   return { ...data, artStyle };
 };
 
-// ============================================
-// IMPROVED IMAGE GENERATION (GRID MODE WITH MULTI-PROMPT)
-// ============================================
-
 export const generateImage = async (
   prompt: string, 
   aspectRatio: AspectRatio = AspectRatio.SQUARE, 
-  imageSize: ImageSize = ImageSize.K1,
+  imageSize: ImageSize = ImageSize.K1, 
   refImages?: string[],
   globalStyle?: string,
   cinematicDNA?: any,
   useGridMode: boolean = false,
-  gridVariations?: string[] // ARRAY OF 9 PROMPTS
+  gridVariations?: string[]
 ): Promise<string> => {
   const ai = getAi();
   
   let safeAspectRatio = aspectRatio;
-  if (aspectRatio === AspectRatio.CINEMATIC) {
-      safeAspectRatio = AspectRatio.WIDE;
-  }
+  if (aspectRatio === AspectRatio.CINEMATIC) safeAspectRatio = AspectRatio.WIDE;
 
-  // Determine the shape description for the prompt based on the requested aspect ratio
-  let panelShapeDescription = "Square (1:1)";
-  if (aspectRatio === AspectRatio.MOBILE) {
-      panelShapeDescription = "Vertical Portrait (9:16)";
-  } else if (aspectRatio === AspectRatio.WIDE || aspectRatio === AspectRatio.CINEMATIC) {
-      panelShapeDescription = "Widescreen (16:9)";
-  } else if (aspectRatio === AspectRatio.PORTRAIT) {
-      panelShapeDescription = "Vertical (3:4)";
-  } else if (aspectRatio === AspectRatio.LANDSCAPE) {
-      panelShapeDescription = "Landscape (4:3)";
-  }
-
-  const dnaPrompt = cinematicDNA ? `
-    **GLOBAL CINEMATIC DNA:**
-    Camera: ${cinematicDNA.cameraSystem}
-    Palette: ${cinematicDNA.colorPalette}
-    Mood: ${cinematicDNA.visualMood}
-  ` : '';
-
-  let gridInstructions = "";
-  let panelPrompts = "";
-
-  if (useGridMode) {
-      gridInstructions = `
-      **STRICT 3x3 GRID LAYOUT INSTRUCTION:**
-      - Generate a SINGLE image divided exactly into a 3x3 grid (9 equal rectangles).
-      - **GEOMETRY**: All 9 rectangles must have exactly the same width and height.
-      - **PANEL ASPECT RATIO**: Each individual grid cell must be **${panelShapeDescription}**. Do not distort the aspect ratio.
-      - **CONTENT**: This is a VARIATION BOARD for the scene.
-      - **CONSISTENCY**: The CHARACTER IDENTITY (Face, Clothes, Body) and general SETTING must remain consistent.
-      - **VARIATION**: The ACTION, POSE, and INTERACTION must change in every panel as described below.
-      - **STYLE**: Images stacked together with no grid lines and no borders. No Text.
-      `;
-
-      if (gridVariations && gridVariations.length > 0) {
-         // Construct the per-panel instructions mapped to grid positions
-         panelPrompts = `
-         **PANEL EXECUTION PLAN (9 DISTINCT ACTIONS):**
-         
-         [ROW 1 - TOP]
-         - Top-Left (Panel 1): ${gridVariations[0]}
-         - Top-Center (Panel 2): ${gridVariations[1]}
-         - Top-Right (Panel 3): ${gridVariations[2]}
-
-         [ROW 2 - MIDDLE]
-         - Mid-Left (Panel 4): ${gridVariations[3]}
-         - Center (Panel 5): ${gridVariations[4]}
-         - Mid-Right (Panel 6): ${gridVariations[5]}
-
-         [ROW 3 - BOTTOM]
-         - Bottom-Left (Panel 7): ${gridVariations[6]}
-         - Bottom-Center (Panel 8): ${gridVariations[7]}
-         - Bottom-Right (Panel 9): ${gridVariations[8]}
-         `;
-      } else {
-         panelPrompts = `
-         Panel 1: Action A.
-         Panel 2: Action B.
-         Panel 3: Action C.
-         Panel 4: Action D.
-         Panel 5: Action E.
-         Panel 6: Action F.
-         Panel 7: Action G.
-         Panel 8: Action H.
-         Panel 9: Action I.
-         `;
-      }
-  }
-
-  const finalPrompt = `
-${dnaPrompt}
-${gridInstructions}
-
-**SCENE TRUTH (APPLIES TO ALL PANELS):**
-${prompt}
-
-${panelPrompts}
-
-**RENDER INSTRUCTIONS:**
-- Photorealistic, cinematic 8K render.
-- High dynamic range.
-- NO cartoons (unless style specified).
-- NO empty spaces.
-- **Visual Consistency**: The character identity and setting must remain constant across all 9 panels.
-
-**CONSISTENCY PROTOCOL:**
-- IF Reference Images are provided:
-   - IMAGE 1 (if present) is the MASTER CHARACTER ASSET.
-   - IMAGE 2 (if present) is the SETTING ASSET.
-`;
-
-  const parts: any[] = [{ text: finalPrompt }];
+  const systemInstruction = `You are a high-end visual director. ${useGridMode ? `Create a precision 3x3 grid. 9 Equal Panels. Same Character/Setting. 9 DIFFERENT ACTIONS.` : 'Create a single scene.'} ${globalStyle || ''}`;
   
+  let gridText = "";
+  if (useGridMode && gridVariations) {
+     gridText = "Render 9 distinct panels based on these 9 actions:\n" + gridVariations.map((v, i) => `Panel ${i+1}: ${v}`).join('\n');
+  }
+
+  const parts: any[] = [{ text: `${prompt}\n${gridText}` }];
   if (refImages && refImages.length > 0) {
     refImages.forEach(base64Data => {
       const cleanBase64 = base64Data.split(',')[1] || base64Data;
-      parts.push({
-        inlineData: {
-          mimeType: 'image/png',
-          data: cleanBase64
-        }
-      });
+      parts.push({ inlineData: { mimeType: 'image/png', data: cleanBase64 } });
     });
   }
 
-  const imageConfig: any = {
-    aspectRatio: safeAspectRatio,
-    // We only want 1 image returned (the contact sheet)
-    numberOfImages: 1 
-  };
-  
-  if (MODEL_IMAGE_GEN.includes('pro')) {
-      imageConfig.imageSize = imageSize;
-  }
-  
-  const systemInstruction = `You are a high-end visual director. ${useGridMode ? `Create a precision 3x3 grid. 9 Equal Panels. Each panel is ${panelShapeDescription}. Same Character/Setting. 9 DIFFERENT ACTIONS/MOMENTS.` : 'Create a single scene.'} ${globalStyle || ''}`;
+  const imageConfig: any = { aspectRatio: safeAspectRatio };
+  if (MODEL_IMAGE_GEN.includes('pro')) imageConfig.imageSize = imageSize;
 
   try {
       const response = await ai.models.generateContent({
         model: MODEL_IMAGE_GEN,
         contents: { parts },
-        config: { 
-          imageConfig,
-          systemInstruction
-        }
+        config: { imageConfig, systemInstruction }
       });
       return extractImageFromResponse(response);
-
   } catch (error: any) {
-      // Fallback Logic
-      const isGenerationError = error.message?.includes('IMAGE_OTHER') || 
-                                error.toString().includes('IMAGE_OTHER') ||
-                                error.message?.includes('500') ||
-                                error.message?.includes('503');
-
-      if (isGenerationError) {
-         console.warn(`Primary model failed. Falling back to ${MODEL_IMAGE_GEN_FALLBACK}.`);
-         
-         const fallbackConfig = {
-            aspectRatio: safeAspectRatio,
-            numberOfImages: 1
-         };
-         
-         try {
-             const fallbackResponse = await ai.models.generateContent({
-                model: MODEL_IMAGE_GEN_FALLBACK,
-                contents: { parts },
-                config: {
-                    imageConfig: fallbackConfig,
-                    systemInstruction
-                }
-             });
-             return extractImageFromResponse(fallbackResponse);
-         } catch (fallbackError: any) {
-             throw new Error(`Both models failed. ${fallbackError.message}`);
-         }
+      // Fallback
+      if (error.message?.includes('IMAGE_OTHER') || error.message?.includes('500')) {
+         const fallbackResponse = await ai.models.generateContent({
+            model: MODEL_IMAGE_GEN_FALLBACK,
+            contents: { parts },
+            config: { imageConfig: { aspectRatio: safeAspectRatio }, systemInstruction }
+         });
+         return extractImageFromResponse(fallbackResponse);
       }
       throw error;
   }
 };
 
 const extractImageFromResponse = (response: any): string => {
-  if (!response.candidates || response.candidates.length === 0) {
-     throw new Error("AI returned no candidates.");
-  }
-  const candidate = response.candidates[0];
-  const part = candidate.content?.parts?.find((p: any) => p.inlineData);
-  if (part && part.inlineData && part.inlineData.data) {
-    return `data:image/png;base64,${part.inlineData.data}`;
-  }
-  const textPart = candidate.content?.parts?.find((p: any) => p.text);
-  if (textPart && textPart.text) {
-      const msg = textPart.text.length > 150 ? textPart.text.substring(0, 150) + "..." : textPart.text;
-      throw new Error(`AI Refused: ${msg}`);
-  }
+  const candidate = response.candidates?.[0];
+  const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
+  if (part?.inlineData?.data) return `data:image/png;base64,${part.inlineData.data}`;
   throw new Error("No image generated.");
 }
 
 export const editImage = async (base64Image: string, instruction: string): Promise<string> => {
    const ai = getAi();
-   const cleanBase64 = base64Image.split(',')[1] || base64Image;
-   
    const response = await ai.models.generateContent({
     model: MODEL_IMAGE_EDIT,
     contents: {
       parts: [
-        { inlineData: { mimeType: 'image/png', data: cleanBase64 } },
+        { inlineData: { mimeType: 'image/png', data: base64Image.split(',')[1] || base64Image } },
         { text: `Edit this image: ${instruction}` },
       ],
     },
@@ -466,11 +286,7 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
     contents: [{ parts: [{ text }] }],
     config: {
       responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: voiceName }, 
-        },
-      },
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } },
     },
   });
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
@@ -493,118 +309,67 @@ const writeString = (view: DataView, offset: number, string: string) => {
 };
 
 /**
- * Wraps raw PCM data in a WAV file container so browsers can play it via Blob URL.
+ * Creates a standard WAV Blob from PCM 16-bit 24kHz Mono data.
+ * This is CRITICAL for browser compatibility (Chrome/Safari need headers).
  */
 export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000): Blob => {
-  // 1. Safe Check: If the audioData already has a RIFF header, don't double wrap it.
-  // "RIFF" in ASCII is 0x52 0x49 0x46 0x46
+  // Check if already WAV (RIFF header)
   if (audioData.byteLength >= 4) {
-    const headerView = new DataView(audioData);
-    // getUint32 is big-endian by default? No, default is big-endian. RIFF is 52 49 46 46.
-    // getUint32(0, false) reads big-endian.
-    if (headerView.getUint32(0, false) === 0x52494646) {
+    const view = new DataView(audioData);
+    if (view.getUint32(0, false) === 0x52494646) {
        return new Blob([audioData], { type: 'audio/wav' });
     }
   }
 
   const dataLen = audioData.byteLength;
-  // WAV requires data chunks to be word-aligned. If odd, add a padding byte.
-  const padding = dataLen % 2 === 1 ? 1 : 0;
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = (numChannels * bitsPerSample) / 8; // 2
+  const byteRate = sampleRate * blockAlign; // 48000
   
-  const buffer = new ArrayBuffer(44 + dataLen + padding);
+  const buffer = new ArrayBuffer(44 + dataLen);
   const view = new DataView(buffer);
 
-  // RIFF chunk descriptor
+  // RIFF chunk
   writeString(view, 0, 'RIFF');
-  // File size = Total Size - 8 bytes (RIFF ID + Size). 
-  // Total Size = 44 + dataLen + padding
-  view.setUint32(4, 36 + dataLen + padding, true);
+  view.setUint32(4, 36 + dataLen, true);
   writeString(view, 8, 'WAVE');
-
-  // fmt sub-chunk
+  
+  // fmt chunk
   writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM format
-  view.setUint16(22, 1, true); // Mono
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 = PCM)
+  view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // Byte rate (SampleRate * BlockAlign)
-  view.setUint16(32, 2, true); // Block align (NumChannels * BitsPerSample/8)
-  view.setUint16(34, 16, true); // Bits per sample
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
 
-  // data sub-chunk
+  // data chunk
   writeString(view, 36, 'data');
   view.setUint32(40, dataLen, true);
 
-  // Write audio data
-  const audioView = new Uint8Array(audioData);
-  const wavView = new Uint8Array(buffer, 44);
-  wavView.set(audioView);
-  
-  // Padding byte (if exists) is automatically 0 due to new ArrayBuffer() initialization.
+  // Write PCM data
+  const pcmBytes = new Uint8Array(audioData);
+  const wavBytes = new Uint8Array(buffer, 44);
+  wavBytes.set(pcmBytes);
 
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
 export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
     stopAudio();
-    const sampleRate = 24000;
     
-    // 1. Create Context if missing
-    if (!audioContext) {
-         audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate });
+    // Create correct WAV blob for browser compatibility
+    const blob = createWavBlob(audioData);
+    const url = URL.createObjectURL(blob);
+    
+    const audio = new Audio(url);
+    currentAudio = audio; // Track for stopping
+    
+    try {
+        await audio.play();
+    } catch (e) {
+        console.error("Audio playback failed", e);
     }
-
-    // 2. CRITICAL FIX: Ensure context is running. Browsers suspend it by default.
-    if (audioContext.state === 'suspended') {
-        try {
-            await audioContext.resume();
-        } catch (e) {
-            console.error("Failed to resume audio context", e);
-        }
-    }
-
-    // 3. Safer buffer view creation (handling potential odd-byte lengths)
-    // Make sure we have an even number of bytes for Int16Array
-    const dataLen = audioData.byteLength;
-    // Check if it's a WAV file first, if so decode via native context
-    if (dataLen >= 4) {
-       const view = new DataView(audioData);
-       if (view.getUint32(0, false) === 0x52494646) {
-           // It is a WAV file, let the browser decode it
-           try {
-             // We must copy the buffer because decodeAudioData detaches it
-             const bufferCopy = audioData.slice(0);
-             const audioBuffer = await audioContext.decodeAudioData(bufferCopy);
-             const source = audioContext.createBufferSource();
-             source.buffer = audioBuffer;
-             source.connect(audioContext.destination);
-             currentSource = source;
-             source.start(0);
-             return;
-           } catch (e) {
-             console.warn("Browser failed to decode WAV, falling back to raw PCM assume", e);
-           }
-       }
-    }
-
-    const safeLen = dataLen % 2 === 0 ? dataLen : dataLen - 1;
-    const dataInt16 = new Int16Array(audioData.slice(0, safeLen));
-
-    const numChannels = 1;
-    const frameCount = dataInt16.length / numChannels;
-    const audioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
-    for (let channel = 0; channel < numChannels; channel++) {
-        const channelData = audioBuffer.getChannelData(channel);
-        for (let i = 0; i < frameCount; i++) {
-            channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-        }
-    }
-    const source = audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioContext.destination);
-    currentSource = source;
-    return new Promise((resolve) => {
-        source.onended = () => { resolve(); };
-        source.start(0);
-    });
 };

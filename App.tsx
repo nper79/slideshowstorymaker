@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload } from 'lucide-react';
+import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload, AlertCircle, CheckCircle, XCircle, Info } from 'lucide-react';
 import StoryInput from './components/StoryInput';
 import AssetGallery from './components/AssetGallery';
 import Storyboard from './components/Storyboard';
@@ -19,15 +19,74 @@ interface AIStudio {
   openSelectKey(): Promise<void>;
 }
 
+// --- TOAST SYSTEM ---
+interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
+
+const ToastContainer: React.FC<{ toasts: Toast[], removeToast: (id: string) => void }> = ({ toasts, removeToast }) => {
+  return (
+    <div className="fixed bottom-6 right-6 z-[10000] flex flex-col gap-3 pointer-events-none">
+      {toasts.map(toast => (
+        <div 
+          key={toast.id} 
+          className={`
+            pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border border-white/10 backdrop-blur-md animate-slide-in-right
+            ${toast.type === 'error' ? 'bg-red-500/90 text-white' : ''}
+            ${toast.type === 'success' ? 'bg-emerald-500/90 text-white' : ''}
+            ${toast.type === 'info' ? 'bg-slate-800/90 text-white' : ''}
+          `}
+        >
+          {toast.type === 'error' && <XCircle className="w-5 h-5 shrink-0" />}
+          {toast.type === 'success' && <CheckCircle className="w-5 h-5 shrink-0" />}
+          {toast.type === 'info' && <Info className="w-5 h-5 shrink-0" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+          <button onClick={() => removeToast(toast.id)} className="ml-2 opacity-70 hover:opacity-100">
+             <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export default function App() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INPUT);
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [storyData, setStoryData] = useState<StoryData | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Voice selection state (default to 'Puck')
   const [selectedVoice, setSelectedVoice] = useState('Puck');
+
+  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+      const id = Math.random().toString(36).substring(7);
+      setToasts(prev => [...prev, { id, type, message }]);
+      setTimeout(() => removeToast(id), 5000);
+  };
+
+  const removeToast = (id: string) => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const handleError = (e: any, defaultMsg: string) => {
+      console.error(e);
+      const msg = e.toString();
+      if (msg.includes("429")) {
+          addToast("Rate Limit Exceeded. Please wait a moment before trying again.", "error");
+      } else if (msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
+          addToast("Permission Denied. Check your API Key billing status.", "error");
+          setHasApiKey(false);
+      } else if (msg.includes("400")) {
+          addToast("The AI request was invalid. Try shortening the text.", "error");
+      } else {
+          addToast(`${defaultMsg}: ${e.message || "Unknown error"}`, "error");
+      }
+  };
 
   useEffect(() => {
     // 1. Check API Key
@@ -75,6 +134,7 @@ export default function App() {
 
   const handleAnalyzeStory = async (text: string, style: string) => {
     setStatus(ProcessingStatus.ANALYZING);
+    addToast("Analyzing story structure...", "info");
     try {
       const data = await GeminiService.analyzeStoryText(text, style);
       // Initialize new fields
@@ -87,15 +147,10 @@ export default function App() {
       setStoryData({ ...data, segments: initializedSegments });
       setStatus(ProcessingStatus.READY);
       setActiveTab(Tab.ASSETS);
+      addToast("Story analyzed successfully!", "success");
     } catch (error: any) {
-      console.error(error);
       setStatus(ProcessingStatus.ERROR);
-      if (error.toString().includes("403") || error.toString().includes("PERMISSION_DENIED")) {
-         alert("Permission Denied. Please ensure you select a Paid API Key with access to Gemini 3 models.");
-         setHasApiKey(false);
-      } else {
-         alert("Failed to analyze story. Error: " + error.message);
-      }
+      handleError(error, "Failed to analyze story");
     }
   };
 
@@ -115,8 +170,9 @@ export default function App() {
       setStoryData(prev => prev ? ({
         ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c)
       }) : null);
+      addToast(`Generated character: ${char.name}`, "success");
     } catch (e) {
-      console.error(e);
+      handleError(e, "Character generation failed");
       setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: false } : c) }) : null);
     }
   };
@@ -137,8 +193,9 @@ export default function App() {
       setStoryData(prev => prev ? ({
         ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s)
       }) : null);
+      addToast(`Generated setting: ${setting.name}`, "success");
     } catch (e) {
-      console.error(e);
+      handleError(e, "Setting generation failed");
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
     }
   };
@@ -196,13 +253,10 @@ export default function App() {
             isGenerating: false 
         } : s)
       }) : null);
+      addToast("Scene grid generated!", "success");
 
     } catch (e: any) {
-       console.error(e);
-       if (e.toString().includes("403")) {
-         alert("Permission Denied.");
-         setHasApiKey(false);
-       }
+       handleError(e, "Scene generation failed");
        setStoryData(prev => prev ? ({
           ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
        }) : null);
@@ -246,12 +300,11 @@ export default function App() {
         });
     } catch (e) {
         console.error("Failed to crop grid cell", e);
+        addToast("Failed to update selection", "error");
     }
   };
 
   const handleEditImage = async (segmentId: string, instruction: string) => {
-      // NOTE: With multi-select, editing becomes complex (which image to edit?).
-      // For now, let's just edit the FIRST image in the selected list if available.
       if (!storyData) return;
 
       const segment = storyData.segments.find(s => s.id === segmentId);
@@ -274,8 +327,9 @@ export default function App() {
                   isGenerating: false 
               } : s)
           }) : null);
+          addToast("Image edited successfully", "success");
       } catch(e) {
-          console.error(e);
+          handleError(e, "Image edit failed");
           setStoryData(prev => prev ? ({
               ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
           }) : null);
@@ -292,6 +346,7 @@ export default function App() {
             audioDuration: undefined
         } : s)
      }) : null);
+     addToast("Audio deleted", "info");
   };
 
   // Modified to generate AND store the audio blob
@@ -305,6 +360,7 @@ export default function App() {
              await audio.play();
           } catch(err) {
              console.error("Playback failed on existing audio", err);
+             addToast("Playback failed. Try regenerating audio.", "error");
           }
           return;
       }
@@ -312,38 +368,23 @@ export default function App() {
       setStoryData(prev => prev ? ({
           ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
       }) : null);
+      addToast("Generating audio...", "info");
 
       try {
           // Generate raw buffer
           const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
           
+          if (!audioBuffer || audioBuffer.byteLength === 0) {
+              throw new Error("Empty audio buffer received");
+          }
+
           // Create PROPER Wav Blob for download/playback
           const blob = GeminiService.createWavBlob(audioBuffer);
           const url = URL.createObjectURL(blob);
           
-          // Get duration
-          const audio = new Audio(url);
-          
-          // Safer loading sequence
-          const loaded = await new Promise((resolve) => {
-              audio.onloadedmetadata = () => resolve(true);
-              audio.onerror = () => resolve(false); 
-              // Short timeout for metadata
-              setTimeout(() => resolve(false), 2000);
-          });
-          
-          if (!loaded) {
-              console.warn("Audio failed to load metadata. Source format may be unsupported by browser.");
-              // Do not update state if audio is broken to allow retry
-              setStoryData(prev => prev ? ({
-                 ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-              }) : null);
-              return;
-          }
-
-          let duration = audio.duration;
-          // Fix for Infinity/NaN durations in some browsers for Blob URLs
-          if (!Number.isFinite(duration)) duration = 10;
+          // Calculate duration mathematically (SampleRate=24000, Channels=1, Bits=16/2bytes)
+          // 48000 bytes per second
+          const duration = audioBuffer.byteLength / 48000;
 
           // Update state with URL and duration
           setStoryData(prev => prev ? ({
@@ -356,15 +397,19 @@ export default function App() {
               } : s)
           }) : null);
 
+          addToast("Audio generated!", "success");
+
           // Play immediately
           try {
+             const audio = new Audio(url);
              await audio.play();
           } catch(err) {
-             console.error("Auto-play failed", err);
+             console.warn("Auto-play failed", err);
+             addToast("Audio ready. Click play to listen.", "info");
           }
 
       } catch (e) {
-          console.error("Audio generation failed", e);
+          handleError(e, "Audio generation failed");
           setStoryData(prev => prev ? ({
               ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
           }) : null);
@@ -373,16 +418,15 @@ export default function App() {
 
   const handleStopAudio = () => {
     GeminiService.stopAudio();
-    // Also stop any HTML5 audio elements we might be tracking if necessary
-    // But basic HTML5 Audio usually stops itself or garbage collects if let go.
   };
 
   const handleExport = async () => {
     if (!storyData) return;
     try {
       await StorageService.exportProject(storyData);
+      addToast("Project exported successfully", "success");
     } catch (e) {
-      alert("Failed to export project.");
+      handleError(e, "Failed to export project");
     }
   };
 
@@ -393,13 +437,20 @@ export default function App() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    addToast("Importing project...", "info");
     try {
       const data = await StorageService.importProject(file);
       setStoryData(data);
       setStatus(ProcessingStatus.READY);
       setActiveTab(Tab.STORYBOARD);
+      addToast("Project imported successfully", "success");
+      
+      // Check for audio issues
+      const segmentsWithMissingAudio = data.segments.filter(s => s.audioUrl === undefined && s.text && s.text.length > 0);
+      // We don't really know if they *should* have audio, but if URLs were cleaned by storage service, we might want to hint
+      
     } catch (e) {
-      alert("Failed to import project.");
+      handleError(e, "Failed to import project");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -408,6 +459,7 @@ export default function App() {
   if (!hasApiKey) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center p-4 relative z-50">
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
         <div className="max-w-md w-full bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-2xl text-center">
           <div className="w-16 h-16 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <Key className="w-8 h-8 text-indigo-400" />
@@ -430,6 +482,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 relative z-50">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
       <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
