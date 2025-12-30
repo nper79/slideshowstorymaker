@@ -496,14 +496,17 @@ export default function App() {
               </span>
             </div>
             <div className="flex items-center gap-4">
-               <div className="hidden md:flex gap-2">
+               {/* MODIFIED: removed 'hidden md:flex' and used 'hidden sm:inline' on text spans instead */}
+               <div className="flex gap-2">
                  <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
                  <button onClick={handleImportClick} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700">
-                   <Upload className="w-4 h-4" /> Import
+                   <Upload className="w-4 h-4" /> 
+                   <span className="hidden sm:inline">Import</span>
                  </button>
                  {storyData && (
                    <button onClick={handleExport} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700">
-                     <Download className="w-4 h-4" /> Export
+                     <Download className="w-4 h-4" /> 
+                     <span className="hidden sm:inline">Export</span>
                    </button>
                  )}
                </div>

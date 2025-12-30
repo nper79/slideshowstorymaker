@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, VolumeX, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download, Trash2, AlertCircle } from 'lucide-react';
-import { StorySegment, Character, Setting, AspectRatio, ImageSize } from '../types';
+import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, VolumeX, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download, Trash2, AlertCircle, Film } from 'lucide-react';
+import { StorySegment, Character, Setting, AspectRatio, ImageSize, VideoClipPrompt } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
+import * as GeminiService from '../services/geminiService';
 // @ts-ignore
 import html2canvas from 'html2canvas';
 
@@ -15,6 +16,7 @@ interface StoryboardProps {
   onStopAudio: () => void;
   onSelectOption: (segmentId: string, optionIndex: number) => void;
   onDeleteAudio: (segmentId: string) => void;
+  // New prop for state update injection from parent would be ideal, but for now we might need to handle local state or callback
 }
 
 const Storyboard: React.FC<StoryboardProps> = ({ 
@@ -33,6 +35,10 @@ const Storyboard: React.FC<StoryboardProps> = ({
   const [showPromptsForId, setShowPromptsForId] = useState<string | null>(null);
   const [isTakingScreenshot, setIsTakingScreenshot] = useState(false);
   
+  // Local state to store plans if not lifted up (For full implementation, lift this to App.tsx)
+  const [videoPlans, setVideoPlans] = useState<Record<string, VideoClipPrompt[]>>({});
+  const [isPlanningVideo, setIsPlanningVideo] = useState<Record<string, boolean>>({});
+
   const storyboardContentRef = useRef<HTMLDivElement>(null);
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.MOBILE);
@@ -54,6 +60,32 @@ const Storyboard: React.FC<StoryboardProps> = ({
         setShowPromptsForId(id);
     }
   }
+
+  const handlePlanVideo = async (segment: StorySegment) => {
+      if (!segment.audioDuration || !segment.selectedGridIndices || segment.selectedGridIndices.length === 0) return;
+      if (!segment.gridVariations) return;
+
+      setIsPlanningVideo(prev => ({ ...prev, [segment.id]: true }));
+      try {
+          // Get descriptions for selected indices (preserving order)
+          const selectedDescriptions = segment.selectedGridIndices.map(idx => segment.gridVariations![idx]);
+          
+          const plan = await GeminiService.planVideoSequence(
+              segment.text,
+              segment.audioDuration,
+              segment.selectedGridIndices,
+              selectedDescriptions
+          );
+          
+          setVideoPlans(prev => ({ ...prev, [segment.id]: plan }));
+
+      } catch (e) {
+          console.error("Video planning failed", e);
+          alert("Failed to generate video plan.");
+      } finally {
+          setIsPlanningVideo(prev => ({ ...prev, [segment.id]: false }));
+      }
+  };
 
   const handleScreenshot = async () => {
     if (!storyboardContentRef.current) return;
@@ -196,7 +228,10 @@ const Storyboard: React.FC<StoryboardProps> = ({
                               )}
                               
                               {segment.audioUrl ? (
-                                <span className="text-xs">Play</span>
+                                <span className="text-xs">
+                                    {/* PRECISE TIMING DISPLAY */}
+                                    {segment.audioDuration ? `${segment.audioDuration.toFixed(3)}s` : 'Play'}
+                                </span>
                               ) : (
                                 <span className="text-xs font-bold">Generate Audio</span>
                               )}
@@ -334,9 +369,46 @@ const Storyboard: React.FC<StoryboardProps> = ({
                {/* RIGHT: The Selected Result (Preview) */}
                {segment.generatedImageUrls && segment.generatedImageUrls.length > 0 && (
                   <div className="w-full md:w-1/3 flex flex-col">
-                     <div className="text-sm text-slate-400 mb-2 flex items-center gap-2">
-                        <Crop className="w-4 h-4" /> Selected Sequence ({segment.generatedImageUrls.length} Frames)
+                     <div className="flex justify-between items-center text-sm text-slate-400 mb-2">
+                        <div className="flex items-center gap-2">
+                            <Crop className="w-4 h-4" /> Sequence ({segment.generatedImageUrls.length})
+                        </div>
+                        {/* GENERATE VIDEO PLAN BUTTON */}
+                        {segment.audioDuration && (
+                            <button
+                                onClick={() => handlePlanVideo(segment)}
+                                disabled={isPlanningVideo[segment.id]}
+                                className="flex items-center gap-1.5 px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-bold transition-all shadow-lg hover:shadow-purple-500/20 disabled:opacity-50"
+                            >
+                                {isPlanningVideo[segment.id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Film className="w-3 h-3" />}
+                                Plan Video
+                            </button>
+                        )}
                      </div>
+
+                     {/* VIDEO PLAN DISPLAY */}
+                     {videoPlans[segment.id] && (
+                        <div className="mb-4 p-3 bg-slate-900/80 border border-purple-500/30 rounded-lg animate-fade-in">
+                            <h4 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 flex justify-between">
+                                <span>AI Video Strategy</span>
+                                <span>Total: {segment.audioDuration?.toFixed(3)}s</span>
+                            </h4>
+                            <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                                {videoPlans[segment.id].map((clip, i) => (
+                                    <div key={i} className="text-[10px] bg-black/40 p-2 rounded border border-white/5">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className={`font-bold ${clip.type === 'LOOP_BUFFER' ? 'text-green-400' : 'text-blue-400'}`}>
+                                                Frame {clip.frameIndex + 1} • {clip.type === 'LOOP_BUFFER' ? '∞ LOOP' : 'ACTION'}
+                                            </span>
+                                            <span className="text-white bg-white/10 px-1.5 rounded">{clip.duration.toFixed(3)}s</span>
+                                        </div>
+                                        <p className="text-slate-400 leading-tight italic">{clip.prompt}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                     )}
+
                      <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                         {segment.generatedImageUrls.map((url, idx) => (
                              <div key={idx} className="relative rounded-lg overflow-hidden border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.15)] group">
@@ -346,7 +418,9 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                    className="w-full h-auto object-cover"
                                 />
                                 <div className="absolute top-2 left-2 bg-green-500 text-black text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shadow border border-white">
-                                   {idx + 1}
+                                   {segment.selectedGridIndices && segment.selectedGridIndices[idx] !== undefined 
+                                     ? segment.selectedGridIndices[idx] + 1 
+                                     : idx + 1}
                                 </div>
                              </div>
                         ))}

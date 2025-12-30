@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
-import { StoryData, AspectRatio, ImageSize, StructuredScene } from "../types";
+import { StoryData, AspectRatio, ImageSize, StructuredScene, VideoClipPrompt } from "../types";
 
 const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -375,3 +375,58 @@ export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
         console.error("Audio playback failed", e);
     }
 };
+
+export const planVideoSequence = async (
+    segmentText: string,
+    totalDuration: number,
+    selectedIndices: number[],
+    gridDescriptions: string[]
+): Promise<VideoClipPrompt[]> => {
+    const ai = getAi();
+    
+    const schema: Schema = {
+        type: Type.ARRAY,
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                frameIndex: { type: Type.INTEGER },
+                duration: { type: Type.NUMBER },
+                type: { type: Type.STRING, enum: ['ACTION', 'LOOP_BUFFER'] },
+                prompt: { type: Type.STRING },
+                reasoning: { type: Type.STRING }
+            },
+            required: ['frameIndex', 'duration', 'type', 'prompt', 'reasoning']
+        }
+    };
+
+    // Calculate generic target per clip to guide the model, but let it decide the final logic
+    const avgDuration = totalDuration / selectedIndices.length;
+
+    const response = await ai.models.generateContent({
+        model: MODEL_TEXT_ANALYSIS, // Using Pro model for logic
+        contents: `
+You are a Video Editor and Prompt Engineer.
+Context: "${segmentText}"
+Total Audio Duration: ${totalDuration.toFixed(3)} seconds.
+Selected Keyframes (Indices): ${JSON.stringify(selectedIndices)}.
+Descriptions for these frames: ${JSON.stringify(gridDescriptions)}.
+
+GOAL: Break down the total audio duration into ${selectedIndices.length} video clips.
+STRATEGY:
+1. Assign standard actions (2s - 4s) to the first few clips.
+2. The LAST clip (or the most static one) must be a "LOOP_BUFFER". This clip's duration must account for the exact remaining fractional seconds (e.g., if total is 7.4s, and first two are 2s + 2s, the last one is 3.4s).
+3. "LOOP_BUFFER" prompts must describe a "Cinemagraph" or "Subtle Idle Loop" (start visual = end visual) so it can be cut at ANY point without looking abrupt.
+4. "ACTION" prompts should describe the specific movement based on the grid description.
+
+Output a JSON array of the plan.
+        `,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            thinkingConfig: { thinkingBudget: 4096 } // Light thinking for math
+        }
+    });
+
+    if (!response.text) throw new Error("Failed to plan video");
+    return JSON.parse(response.text) as VideoClipPrompt[];
+}

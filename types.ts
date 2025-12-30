@@ -1,3 +1,4 @@
+
 export enum ProcessingStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
@@ -58,6 +59,14 @@ export interface StructuredScene {
   contextual_inference: string; // Why are these details here?
 }
 
+export interface VideoClipPrompt {
+  frameIndex: number;
+  duration: number; // In seconds (e.g., 2.0 or 3.412)
+  type: 'ACTION' | 'LOOP_BUFFER'; // LOOP_BUFFER means start frame ~= end frame
+  prompt: string;
+  reasoning: string;
+}
+
 export interface StorySegment {
   id: string;
   text: string;
@@ -89,6 +98,10 @@ export interface StorySegment {
   // UPDATED: Audio storage for download/streaming
   audioUrl?: string;
   audioDuration?: number;
+
+  // NEW: Video Planning
+  videoPlan?: VideoClipPrompt[];
+  isPlanningVideo?: boolean;
 
   isGenerating?: boolean;
 }
