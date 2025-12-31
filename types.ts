@@ -20,7 +20,7 @@ export interface Setting {
   id: string;
   name: string;
   description: string;
-  visualPrompt: string; // Top down view prompt
+  visualPrompt: string;
   imageUrl?: string;
   isGenerating?: boolean;
 }
@@ -33,7 +33,6 @@ export interface CinematicDNA {
   visualMood: string;
 }
 
-// New High-Density Structure
 export interface StructuredScene {
   subject_details: {
     appearance: string;
@@ -56,15 +55,26 @@ export interface StructuredScene {
     angle: string;
     lens_characteristics: string;
   };
-  contextual_inference: string; // Why are these details here?
+  contextual_inference: string;
 }
 
 export interface VideoClipPrompt {
   frameIndex: number;
-  duration: number; // In seconds (e.g., 2.0 or 3.412)
-  type: 'ACTION' | 'LOOP_BUFFER'; // LOOP_BUFFER means start frame ~= end frame
+  duration: number;
+  type: 'ACTION' | 'LOOP_BUFFER';
   prompt: string;
   reasoning: string;
+}
+
+export interface Choice {
+  text: string;
+  targetSegmentId: string;
+}
+
+export enum SegmentType {
+  MAIN = 'MAIN',
+  BRANCH = 'BRANCH',
+  MERGE_POINT = 'MERGE_POINT'
 }
 
 export interface StorySegment {
@@ -72,34 +82,28 @@ export interface StorySegment {
   text: string;
   settingId: string;
   characterIds: string[];
-  quadrant: string; // e.g., "top-left", "center"
+  quadrant: string;
   temporalLogic: string; 
   timeOfDay: string; 
   keyVisualAction: string; 
-  
-  // This will be the compiled string for the Image Generator/UI
   scenePrompt: string; 
-  
-  // This stores the granular raw data
   structuredScene?: StructuredScene;
 
-  // GRID SYSTEM UPDATES
-  masterGridImageUrl?: string; // The raw 3x3 grid image returned by AI
-  
-  // UPDATED: Support multiple selections
-  selectedGridIndices: number[]; // Array of selected indices (e.g., [0, 4, 8])
-  
-  // The 9 distinct prompts for the contact sheet
-  gridVariations?: string[]; 
+  // Branching Logic
+  type: SegmentType;
+  parentId?: string;
+  choices?: Choice[];
+  nextSegmentId?: string; // Standard next segment for non-choice points
 
-  // UPDATED: Support multiple cropped images
+  // Media
+  masterGridImageUrl?: string;
+  selectedGridIndices: number[];
+  gridVariations?: string[]; 
   generatedImageUrls: string[]; 
-  
-  // UPDATED: Audio storage for download/streaming
   audioUrl?: string;
   audioDuration?: number;
 
-  // NEW: Video Planning
+  // Video Planning
   videoPlan?: VideoClipPrompt[];
   isPlanningVideo?: boolean;
 

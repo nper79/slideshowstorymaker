@@ -263,7 +263,6 @@ export default function App() {
     }
   };
 
-  // UPDATED: Handle multi-select toggle
   const handleSelectOption = async (segmentId: string, optionIndex: number) => {
     if (!storyData) return;
     
@@ -272,15 +271,12 @@ export default function App() {
 
     try {
         let newIndices = [...(segment.selectedGridIndices || [])];
-        
-        // Toggle logic
         if (newIndices.includes(optionIndex)) {
             newIndices = newIndices.filter(i => i !== optionIndex);
         } else {
             newIndices.push(optionIndex);
         }
 
-        // Re-generate the array of cropped images based on the new index order
         const newImages = await Promise.all(
             newIndices.map(async (idx) => {
                 return await cropGridCell(segment.masterGridImageUrl!, idx);
@@ -306,157 +302,73 @@ export default function App() {
 
   const handleEditImage = async (segmentId: string, instruction: string) => {
       if (!storyData) return;
-
       const segment = storyData.segments.find(s => s.id === segmentId);
       if (!segment || !segment.generatedImageUrls || segment.generatedImageUrls.length === 0) return;
-
-      setStoryData(prev => prev ? ({
-          ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
-      }) : null);
-
+      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
       try {
           const originalUrl = segment.generatedImageUrls[0];
           const newImageUrl = await GeminiService.editImage(originalUrl, instruction);
-          
-          setStoryData(prev => prev ? ({
-              ...prev,
-              segments: prev.segments.map(s => s.id === segmentId ? { 
-                  ...s, 
-                  // Replace the first image with the edited version
-                  generatedImageUrls: [newImageUrl, ...s.generatedImageUrls.slice(1)],
-                  isGenerating: false 
-              } : s)
-          }) : null);
+          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, generatedImageUrls: [newImageUrl, ...s.generatedImageUrls.slice(1)], isGenerating: false } : s) }) : null);
           addToast("Image edited successfully", "success");
       } catch(e) {
           handleError(e, "Image edit failed");
-          setStoryData(prev => prev ? ({
-              ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-          }) : null);
+          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
       }
   };
 
   const handleDeleteAudio = (segmentId: string) => {
      if (!storyData) return;
-     setStoryData(prev => prev ? ({
-        ...prev,
-        segments: prev.segments.map(s => s.id === segmentId ? {
-            ...s,
-            audioUrl: undefined,
-            audioDuration: undefined
-        } : s)
-     }) : null);
+     setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: undefined, audioDuration: undefined } : s) }) : null);
      addToast("Audio deleted", "info");
   };
 
-  // Modified to generate AND store the audio blob
   const handleGenerateAndPlayAudio = async (segmentId: string, text: string): Promise<void> => {
       const segment = storyData?.segments.find(s => s.id === segmentId);
-      
-      // If audio already exists, just play it
       if (segment?.audioUrl) {
           try {
              const audio = new Audio(segment.audioUrl);
              await audio.play();
-          } catch(err) {
-             console.error("Playback failed on existing audio", err);
-             addToast("Playback failed. Try regenerating audio.", "error");
-          }
+          } catch(err) { handleError(err, "Playback failed"); }
           return;
       }
-
-      setStoryData(prev => prev ? ({
-          ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
-      }) : null);
+      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
       addToast("Generating audio...", "info");
-
       try {
-          // Generate raw buffer
           const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
-          
-          if (!audioBuffer || audioBuffer.byteLength === 0) {
-              throw new Error("Empty audio buffer received");
-          }
-
-          // Create PROPER Wav Blob for download/playback
+          if (!audioBuffer || audioBuffer.byteLength === 0) throw new Error("Empty audio buffer");
           const blob = GeminiService.createWavBlob(audioBuffer);
           const url = URL.createObjectURL(blob);
-          
-          // Calculate duration mathematically (SampleRate=24000, Channels=1, Bits=16/2bytes)
-          // 48000 bytes per second
           const duration = audioBuffer.byteLength / 48000;
-
-          // Update state with URL and duration
-          setStoryData(prev => prev ? ({
-              ...prev, 
-              segments: prev.segments.map(s => s.id === segmentId ? { 
-                  ...s, 
-                  audioUrl: url,
-                  audioDuration: duration,
-                  isGenerating: false 
-              } : s)
-          }) : null);
-
+          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: url, audioDuration: duration, isGenerating: false } : s) }) : null);
           addToast("Audio generated!", "success");
-
-          // Play immediately
-          try {
-             const audio = new Audio(url);
-             await audio.play();
-          } catch(err) {
-             console.warn("Auto-play failed", err);
-             addToast("Audio ready. Click play to listen.", "info");
-          }
-
+          try { const audio = new Audio(url); await audio.play(); } catch(err) { addToast("Audio ready. Click play.", "info"); }
       } catch (e) {
           handleError(e, "Audio generation failed");
-          setStoryData(prev => prev ? ({
-              ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-          }) : null);
+          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
       }
   };
 
-  const handleStopAudio = () => {
-    GeminiService.stopAudio();
-  };
+  const handleStopAudio = () => { GeminiService.stopAudio(); };
 
   const handleExport = async () => {
     if (!storyData) return;
-    try {
-      await StorageService.exportProject(storyData);
-      addToast("Project exported successfully", "success");
-    } catch (e) {
-      handleError(e, "Failed to export project");
-    }
+    try { await StorageService.exportProject(storyData); addToast("Project exported!", "success"); } catch (e) { handleError(e, "Export failed"); }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handleImportClick = () => { fileInputRef.current?.click(); };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     addToast("Importing project...", "info");
     try {
-      // Updated to receive warnings
       const { data, warnings } = await StorageService.importProject(file);
-      
       setStoryData(data);
       setStatus(ProcessingStatus.READY);
       setActiveTab(Tab.STORYBOARD);
-      
-      if (warnings && warnings.length > 0) {
-          warnings.forEach(w => addToast(w, "info"));
-      } else {
-          addToast("Project imported successfully", "success");
-      }
-      
-    } catch (e) {
-      handleError(e, "Failed to import project");
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+      if (warnings && warnings.length > 0) warnings.forEach(w => addToast(w, "info"));
+      else addToast("Imported successfully!", "success");
+    } catch (e) { handleError(e, "Import failed"); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
   if (!hasApiKey) {
@@ -468,16 +380,8 @@ export default function App() {
             <Key className="w-8 h-8 text-indigo-400" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-4">Access Required</h1>
-          <p className="text-slate-400 mb-8">
-            StoryBoard AI uses advanced Gemini models (Gemini 3 Pro & Imagen). 
-            Please select a <strong>paid API key</strong> to continue.
-          </p>
-          <button onClick={handleSelectKey} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg mb-6">
-            Select API Key
-          </button>
-          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-400 hover:text-indigo-300 flex items-center justify-center gap-1">
-            Learn about Gemini API billing <ExternalLink className="w-3 h-3" />
-          </a>
+          <p className="text-slate-400 mb-8">StoryBoard AI uses advanced Gemini models. Please select a <strong>paid API key</strong>.</p>
+          <button onClick={handleSelectKey} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg mb-6">Select API Key</button>
         </div>
       </div>
     );
@@ -491,20 +395,17 @@ export default function App() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
               <Layout className="w-8 h-8 text-indigo-500" />
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
-                StoryBoard AI
-              </span>
+              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">StoryBoard AI</span>
             </div>
             <div className="flex items-center gap-4">
-               {/* MODIFIED: removed 'hidden md:flex' and used 'hidden sm:inline' on text spans instead */}
                <div className="flex gap-2">
                  <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
-                 <button onClick={handleImportClick} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700">
+                 <button onClick={handleImportClick} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm border border-slate-700">
                    <Upload className="w-4 h-4" /> 
                    <span className="hidden sm:inline">Import</span>
                  </button>
                  {storyData && (
-                   <button onClick={handleExport} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm transition-colors border border-slate-700">
+                   <button onClick={handleExport} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm border border-slate-700">
                      <Download className="w-4 h-4" /> 
                      <span className="hidden sm:inline">Export</span>
                    </button>
@@ -512,9 +413,9 @@ export default function App() {
                </div>
               {storyData && (
                 <div className="flex bg-slate-800 rounded-lg p-1">
-                  <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Story</button>
-                   <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Assets</button>
-                   <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Storyboard</button>
+                   <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>Story</button>
+                   <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>Assets</button>
+                   <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>Storyboard</button>
                 </div>
               )}
             </div>
@@ -523,38 +424,9 @@ export default function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === Tab.INPUT && (
-          <div className="animate-fade-in">
-             <StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} />
-             {storyData && (
-                <div className="mt-8 flex justify-center">
-                   <button onClick={() => setActiveTab(Tab.ASSETS)} className="flex items-center gap-2 text-indigo-400 hover:text-indigo-300 font-semibold">
-                     Continue to Assets <ChevronRight className="w-4 h-4" />
-                   </button>
-                </div>
-             )}
-          </div>
-        )}
-        {activeTab === Tab.ASSETS && storyData && (
-           <div className="animate-fade-in">
-              <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />
-           </div>
-        )}
-        {activeTab === Tab.STORYBOARD && storyData && (
-          <div className="animate-fade-in">
-             <Storyboard 
-               segments={storyData.segments}
-               characters={storyData.characters}
-               settings={storyData.settings}
-               onGenerateScene={handleGenerateScene}
-               onEditImage={handleEditImage}
-               onPlayAudio={handleGenerateAndPlayAudio}
-               onStopAudio={handleStopAudio}
-               onSelectOption={handleSelectOption}
-               onDeleteAudio={handleDeleteAudio}
-             />
-          </div>
-        )}
+        {activeTab === Tab.INPUT && <div className="animate-fade-in"><StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} /></div>}
+        {activeTab === Tab.ASSETS && storyData && <div className="animate-fade-in"><AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} /></div>}
+        {activeTab === Tab.STORYBOARD && storyData && <div className="animate-fade-in"><Storyboard segments={storyData.segments} characters={storyData.characters} settings={storyData.settings} onGenerateScene={handleGenerateScene} onEditImage={handleEditImage} onPlayAudio={handleGenerateAndPlayAudio} onStopAudio={handleStopAudio} onSelectOption={handleSelectOption} onDeleteAudio={handleDeleteAudio} /></div>}
       </main>
     </div>
   );

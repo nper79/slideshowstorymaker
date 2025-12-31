@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Image as ImageIcon, Wand2, Edit, Save, Volume2, VolumeX, Clock, Zap, BrainCircuit, Check, Grid3X3, Crop, FileText, ChevronDown, ChevronUp, Camera, Loader2, Download, Trash2, AlertCircle, Film } from 'lucide-react';
-import { StorySegment, Character, Setting, AspectRatio, ImageSize, VideoClipPrompt } from '../types';
+import { Clapperboard, Play, Wand2, Volume2, VolumeX, Clock, Zap, BrainCircuit, Grid3X3, Crop, FileText, Camera, Loader2, Download, Trash2, AlertCircle, Film, GitBranch, ArrowDownRight, CornerRightDown, RefreshCw } from 'lucide-react';
+import { StorySegment, Character, Setting, AspectRatio, ImageSize, VideoClipPrompt, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 import * as GeminiService from '../services/geminiService';
 // @ts-ignore
@@ -16,15 +16,11 @@ interface StoryboardProps {
   onStopAudio: () => void;
   onSelectOption: (segmentId: string, optionIndex: number) => void;
   onDeleteAudio: (segmentId: string) => void;
-  // New prop for state update injection from parent would be ideal, but for now we might need to handle local state or callback
 }
 
 const Storyboard: React.FC<StoryboardProps> = ({ 
   segments, 
-  characters, 
-  settings, 
   onGenerateScene,
-  onEditImage,
   onPlayAudio,
   onStopAudio,
   onSelectOption,
@@ -32,120 +28,41 @@ const Storyboard: React.FC<StoryboardProps> = ({
 }) => {
   const [generatingAudioId, setGeneratingAudioId] = useState<string | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
-  const [showPromptsForId, setShowPromptsForId] = useState<string | null>(null);
   const [isTakingScreenshot, setIsTakingScreenshot] = useState(false);
-  
-  // Local state to store plans if not lifted up (For full implementation, lift this to App.tsx)
-  const [videoPlans, setVideoPlans] = useState<Record<string, VideoClipPrompt[]>>({});
-  const [isPlanningVideo, setIsPlanningVideo] = useState<Record<string, boolean>>({});
 
   const storyboardContentRef = useRef<HTMLDivElement>(null);
-
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.MOBILE);
-  const [imageSize, setImageSize] = useState<ImageSize>(ImageSize.K1);
+  const [aspectRatio] = useState<AspectRatio>(AspectRatio.MOBILE); // 9:16
+  const [imageSize] = useState<ImageSize>(ImageSize.K1);
 
   const handleAudioClick = async (id: string, text: string) => {
     setGeneratingAudioId(id);
-    try {
-        await onPlayAudio(id, text);
-    } finally {
-        setGeneratingAudioId(null);
-    }
+    try { await onPlayAudio(id, text); } finally { setGeneratingAudioId(null); }
   }
-
-  const togglePrompts = (id: string) => {
-    if (showPromptsForId === id) {
-        setShowPromptsForId(null);
-    } else {
-        setShowPromptsForId(id);
-    }
-  }
-
-  const handlePlanVideo = async (segment: StorySegment) => {
-      if (!segment.audioDuration || !segment.selectedGridIndices || segment.selectedGridIndices.length === 0) return;
-      if (!segment.gridVariations) return;
-
-      setIsPlanningVideo(prev => ({ ...prev, [segment.id]: true }));
-      try {
-          // Get descriptions for selected indices (preserving order)
-          const selectedDescriptions = segment.selectedGridIndices.map(idx => segment.gridVariations![idx]);
-          
-          const plan = await GeminiService.planVideoSequence(
-              segment.text,
-              segment.audioDuration,
-              segment.selectedGridIndices,
-              selectedDescriptions
-          );
-          
-          setVideoPlans(prev => ({ ...prev, [segment.id]: plan }));
-
-      } catch (e) {
-          console.error("Video planning failed", e);
-          alert("Failed to generate video plan.");
-      } finally {
-          setIsPlanningVideo(prev => ({ ...prev, [segment.id]: false }));
-      }
-  };
 
   const handleScreenshot = async () => {
     if (!storyboardContentRef.current) return;
     setIsTakingScreenshot(true);
-
     try {
-      const canvas = await html2canvas(storyboardContentRef.current, {
-        useCORS: true,
-        backgroundColor: '#0f172a',
-        scale: 2,
-        logging: false
-      });
-
-      const image = canvas.toDataURL("image/png");
+      const canvas = await html2canvas(storyboardContentRef.current, { useCORS: true, backgroundColor: '#0f172a', scale: 2 });
       const link = document.createElement('a');
-      link.href = image;
-      link.download = `storyboard-snapshot-${new Date().toISOString().slice(0, 19)}.png`;
-      document.body.appendChild(link);
+      link.href = canvas.toDataURL("image/png");
+      link.download = `storyboard-${new Date().getTime()}.png`;
       link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error("Screenshot failed:", error);
-      alert("Failed to capture screenshot. Please try again.");
-    } finally {
-      setIsTakingScreenshot(false);
-    }
+    } finally { setIsTakingScreenshot(false); }
   };
 
-  // Helper to render the 3x3 Grid Overlay
   const GridOverlay = ({ segment }: { segment: StorySegment }) => {
      if (!segment.masterGridImageUrl) return null;
-
-     // 9 Cells
-     const cells = Array.from({ length: 9 }, (_, i) => i);
-
      return (
-        <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 z-10 group-hover:opacity-100 transition-opacity">
-           {cells.map((index) => {
+        <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 z-10">
+           {Array.from({ length: 9 }).map((_, index) => {
               const selectionOrder = segment.selectedGridIndices?.indexOf(index);
-              const isSelected = selectionOrder !== undefined && selectionOrder !== -1;
-              
+              const isSelected = selectionOrder !== -1;
               return (
-              <button
-                key={index}
-                onClick={(e) => {
-                   e.stopPropagation();
-                   onSelectOption(segment.id, index);
-                }}
-                className={`
-                  border-white/10 hover:border-green-400 hover:bg-green-500/20 
-                  transition-all duration-200 cursor-pointer relative
-                  ${isSelected ? 'border-4 border-green-500 bg-green-500/10' : 'border'}
-                `}
-                title={`Toggle Selection for Frame ${index + 1}`}
+              <button key={index} onClick={(e) => { e.stopPropagation(); onSelectOption(segment.id, index); }}
+                className={`border-transparent hover:border-indigo-400 hover:bg-indigo-500/10 transition-all cursor-pointer relative ${isSelected ? 'border-4 border-indigo-500 bg-indigo-500/5' : 'border'}`}
               >
-                  {isSelected && (
-                      <div className="absolute top-1 right-1 bg-green-500 text-black rounded-full w-6 h-6 flex items-center justify-center shadow-lg font-bold text-xs border border-white">
-                          {selectionOrder + 1}
-                      </div>
-                  )}
+                  {isSelected && <div className="absolute top-1 right-1 bg-indigo-500 text-black rounded-full w-5 h-5 flex items-center justify-center font-bold text-[10px] shadow-lg">{selectionOrder + 1}</div>}
               </button>
            )})}
         </div>
@@ -156,290 +73,99 @@ const Storyboard: React.FC<StoryboardProps> = ({
     <div className="space-y-8">
       <div className="flex justify-between items-center sticky top-0 z-10 bg-[#0f172a]/95 backdrop-blur py-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <Clapperboard className="w-6 h-6 text-indigo-400" />
-          <h2 className="text-xl font-bold text-white">Storyboard Grid</h2>
+          <GitBranch className="w-6 h-6 text-indigo-400" />
+          <h2 className="text-xl font-bold text-white">Storyboard 9:16 (3x3 Grid)</h2>
         </div>
         <div className="flex gap-4 items-center">
-             <button
-               onClick={handleScreenshot}
-               disabled={isTakingScreenshot}
-               className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-medium transition-all shadow border border-slate-600"
-               title="Save Storyboard as Image"
-             >
+             <button onClick={handleScreenshot} disabled={isTakingScreenshot} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 font-medium transition-all shadow border border-slate-600">
                {isTakingScreenshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-               <span className="hidden sm:inline">Snapshot</span>
+               Snapshot
              </button>
-
-             <button
-               onClick={() => setShowPlayer(true)}
-               className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 font-bold transition-all shadow-lg hover:shadow-emerald-500/20 mr-4"
-             >
-               <Play className="w-4 h-4 fill-current" />
-               Play Pocket FM Story
+             <button onClick={() => setShowPlayer(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 font-bold transition-all shadow-lg">
+               <Play className="w-4 h-4 fill-current" /> Play Story
              </button>
-
-             <select 
-                value={imageSize}
-                onChange={(e) => setImageSize(e.target.value as ImageSize)}
-                className="bg-slate-800 text-xs text-white border border-slate-600 rounded px-2 py-1"
-             >
-                {Object.values(ImageSize).map(size => <option key={size} value={size}>{size}</option>)}
-             </select>
-             <select 
-                value={aspectRatio}
-                onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-                className="bg-slate-800 text-xs text-white border border-slate-600 rounded px-2 py-1"
-             >
-                {Object.values(AspectRatio).map(ratio => <option key={ratio} value={ratio}>{ratio}</option>)}
-             </select>
         </div>
       </div>
 
-      <div ref={storyboardContentRef} className="space-y-12 pb-20 p-4 bg-[#0f172a]">
-        {segments.map((segment, index) => (
-          <div key={segment.id} className="relative bg-slate-800/30 p-6 rounded-2xl border border-slate-700/50 break-inside-avoid">
-            
-            {/* Header: Scene Info & Text */}
-            <div className="flex flex-col md:flex-row gap-6 mb-6">
-                <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                        <span className="text-xs font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded">Scene {index + 1}</span>
-                         <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{segment.quadrant}</span>
-                         
-                         {/* Audio Controls */}
-                         <div className="flex items-center gap-2 ml-auto md:ml-4">
-                            <button 
-                              onClick={() => handleAudioClick(segment.id, segment.text)}
-                              disabled={generatingAudioId === segment.id}
-                              className={`
-                                transition-colors flex items-center gap-2 px-2 py-1 rounded
-                                ${segment.audioUrl 
-                                    ? 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700' 
-                                    : 'bg-indigo-600 text-white hover:bg-indigo-500 border border-indigo-500 shadow-md animate-pulse'}
-                              `}
-                              title={segment.audioUrl ? "Play Audio" : "Audio Missing - Click to Generate"}
-                            >
-                              {generatingAudioId === segment.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" /> 
-                              ) : segment.audioUrl ? (
-                                <Volume2 className="w-4 h-4" />
-                              ) : (
-                                <VolumeX className="w-4 h-4" />
-                              )}
-                              
-                              {segment.audioUrl ? (
-                                <span className="text-xs">
-                                    {/* PRECISE TIMING DISPLAY */}
-                                    {segment.audioDuration ? `${segment.audioDuration.toFixed(3)}s` : 'Play'}
-                                </span>
-                              ) : (
-                                <span className="text-xs font-bold">Generate Audio</span>
-                              )}
-                            </button>
-                            
-                            {segment.audioUrl && (
-                                <>
-                                  <a 
-                                    href={segment.audioUrl} 
-                                    download={`audio_scene_${index+1}.wav`}
-                                    className="text-slate-400 hover:text-green-400 transition-colors p-1"
-                                    title="Download Audio File"
-                                  >
-                                      <Download className="w-4 h-4" />
-                                  </a>
-                                  <button
-                                      onClick={() => onDeleteAudio(segment.id)}
-                                      className="text-slate-400 hover:text-red-400 transition-colors p-1"
-                                      title="Delete Audio"
-                                  >
-                                      <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </>
-                            )}
-                            
-                            {!segment.audioUrl && (
-                                <span className="text-xs text-red-400 flex items-center gap-1">
-                                    <AlertCircle className="w-3 h-3" /> Missing
-                                </span>
-                            )}
-                         </div>
-                    </div>
-                    <p className="text-slate-200 text-lg leading-relaxed font-serif">"{segment.text}"</p>
-                </div>
-                
-                {/* Meta Tags */}
-                <div className="flex flex-wrap gap-2 md:w-1/3 md:justify-end content-start">
-                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 text-slate-400 border border-slate-700 text-xs font-medium">
-                        <Clock className="w-3 h-3" /> {segment.timeOfDay || 'Unknown'}
-                     </span>
-                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 text-slate-400 border border-slate-700 text-xs font-medium">
-                        <Zap className="w-3 h-3" /> {segment.keyVisualAction || 'Action'}
-                     </span>
-                     <div className="w-full text-xs text-slate-500 italic mt-2 text-right">
-                        {segment.scenePrompt.substring(0, 100)}...
-                     </div>
-                </div>
-            </div>
-
-            {/* THE MASTER GRID OR SELECTED RESULT */}
-            <div className="flex flex-col md:flex-row gap-6">
-               
-               {/* LEFT: The Master Grid (Contact Sheet) */}
-               <div className="flex-1">
-                  {!segment.masterGridImageUrl ? (
-                     // Empty State / Generate Button
-                     <div className="w-full h-96 bg-slate-900/50 border-2 border-dashed border-slate-700 rounded-xl flex flex-col items-center justify-center">
-                        {segment.isGenerating ? (
-                           <div className="text-center py-8">
-                              <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                              <p className="text-indigo-400 animate-pulse font-medium">Rendering 9 Variations (3x3 Grid)...</p>
-                              <p className="text-xs text-slate-500 mt-2">Constructing 9 separate perspectives...</p>
-                           </div>
-                        ) : (
-                           <button 
-                             onClick={() => onGenerateScene(segment.id, { aspectRatio, imageSize })}
-                             className="group relative inline-flex items-center justify-center gap-3 px-8 py-4 font-bold text-white transition-all duration-200 bg-indigo-600 rounded-xl hover:bg-indigo-500 shadow-lg"
-                           >
-                             <Grid3X3 className="w-5 h-5" />
-                             Generate 3x3 Grid
-                           </button>
-                        )}
-                     </div>
-                  ) : (
-                     // THE MASTER GRID DISPLAY
-                     <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center text-sm text-slate-400 mb-1">
-                           <span className="flex items-center gap-2"><Grid3X3 className="w-4 h-4" /> Source Grid (3x3)</span>
-                           
-                           <div className="flex items-center gap-4" data-html2canvas-ignore>
-                               <button 
-                                 onClick={() => togglePrompts(segment.id)}
-                                 className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
-                               >
-                                 <FileText className="w-3 h-3" /> 
-                                 {showPromptsForId === segment.id ? 'Hide Prompts' : 'View Prompts'}
-                               </button>
-                               <button 
-                                 onClick={() => onGenerateScene(segment.id, { aspectRatio, imageSize })}
-                                 className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
-                               >
-                                 <Wand2 className="w-3 h-3" /> Regenerate
-                               </button>
-                           </div>
-                        </div>
-                        
-                        <div className="relative group rounded-lg overflow-hidden border border-slate-600 shadow-2xl">
-                           <img 
-                              src={segment.masterGridImageUrl} 
-                              alt="Master Grid" 
-                              className="w-full h-auto object-cover opacity-90 group-hover:opacity-100 transition-opacity"
-                           />
-                           {/* OVERLAY FOR SELECTING CELLS */}
-                           <div data-html2canvas-ignore>
-                              <GridOverlay segment={segment} />
-                           </div>
-                        </div>
-                        <p className="text-center text-xs text-slate-500 mt-2" data-html2canvas-ignore>
-                           Click squares to select frames for the video sequence. Order matters!
-                        </p>
-
-                        {/* VISUAL PROMPT GRID (Togglable) */}
-                        {showPromptsForId === segment.id && segment.gridVariations && (
-                           <div className="mt-4 p-4 bg-slate-900 rounded-lg border border-slate-700 animate-fade-in">
-                               <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
-                                   <BrainCircuit className="w-3 h-3" /> Grid Generation Logic
-                               </h4>
-                               <div className="grid grid-cols-3 gap-2">
-                                   {segment.gridVariations.map((prompt, i) => (
-                                       <div key={i} className={`
-                                           p-2 rounded text-[10px] leading-tight border 
-                                           ${segment.selectedGridIndices?.includes(i) ? 'bg-indigo-900/30 border-indigo-500 text-indigo-200' : 'bg-slate-800 border-slate-700 text-slate-400'}
-                                       `}>
-                                           <strong className="block mb-1 text-slate-500">Panel {i+1}</strong>
-                                           {prompt}
-                                       </div>
-                                   ))}
-                               </div>
-                           </div>
-                        )}
-                     </div>
-                  )}
-               </div>
-
-               {/* RIGHT: The Selected Result (Preview) */}
-               {segment.generatedImageUrls && segment.generatedImageUrls.length > 0 && (
-                  <div className="w-full md:w-1/3 flex flex-col">
-                     <div className="flex justify-between items-center text-sm text-slate-400 mb-2">
-                        <div className="flex items-center gap-2">
-                            <Crop className="w-4 h-4" /> Sequence ({segment.generatedImageUrls.length})
-                        </div>
-                        {/* GENERATE VIDEO PLAN BUTTON */}
-                        {segment.audioDuration && (
-                            <button
-                                onClick={() => handlePlanVideo(segment)}
-                                disabled={isPlanningVideo[segment.id]}
-                                className="flex items-center gap-1.5 px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-bold transition-all shadow-lg hover:shadow-purple-500/20 disabled:opacity-50"
-                            >
-                                {isPlanningVideo[segment.id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Film className="w-3 h-3" />}
-                                Plan Video
-                            </button>
-                        )}
-                     </div>
-
-                     {/* VIDEO PLAN DISPLAY */}
-                     {videoPlans[segment.id] && (
-                        <div className="mb-4 p-3 bg-slate-900/80 border border-purple-500/30 rounded-lg animate-fade-in">
-                            <h4 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 flex justify-between">
-                                <span>AI Video Strategy</span>
-                                <span>Total: {segment.audioDuration?.toFixed(3)}s</span>
-                            </h4>
-                            <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
-                                {videoPlans[segment.id].map((clip, i) => (
-                                    <div key={i} className="text-[10px] bg-black/40 p-2 rounded border border-white/5">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className={`font-bold ${clip.type === 'LOOP_BUFFER' ? 'text-green-400' : 'text-blue-400'}`}>
-                                                Frame {clip.frameIndex + 1} • {clip.type === 'LOOP_BUFFER' ? '∞ LOOP' : 'ACTION'}
-                                            </span>
-                                            <span className="text-white bg-white/10 px-1.5 rounded">{clip.duration.toFixed(3)}s</span>
-                                        </div>
-                                        <p className="text-slate-400 leading-tight italic">{clip.prompt}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                     )}
-
-                     <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                        {segment.generatedImageUrls.map((url, idx) => (
-                             <div key={idx} className="relative rounded-lg overflow-hidden border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.15)] group">
-                                <img 
-                                   src={url} 
-                                   alt={`Selected Frame ${idx+1}`} 
-                                   className="w-full h-auto object-cover"
-                                />
-                                <div className="absolute top-2 left-2 bg-green-500 text-black text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full shadow border border-white">
-                                   {segment.selectedGridIndices && segment.selectedGridIndices[idx] !== undefined 
-                                     ? segment.selectedGridIndices[idx] + 1 
-                                     : idx + 1}
-                                </div>
+      <div ref={storyboardContentRef} className="space-y-6 pb-20 p-4">
+        {segments.map((segment, index) => {
+          const isBranch = segment.type === SegmentType.BRANCH;
+          return (
+          <div key={segment.id} className={`relative transition-all duration-500 ${isBranch ? 'ml-12 border-l-2 border-indigo-500/30 pl-8 pb-8' : ''}`}>
+            {isBranch && <CornerRightDown className="absolute -left-6 top-0 w-6 h-6 text-indigo-500/50" />}
+            <div className={`bg-slate-800/30 p-6 rounded-2xl border ${isBranch ? 'border-indigo-500/20' : 'border-slate-700/50'} backdrop-blur-sm`}>
+                <div className="flex flex-col md:flex-row gap-6 mb-6">
+                    <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-3">
+                            <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded ${isBranch ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                                {isBranch ? 'Path' : `Node ${index + 1}`}
+                            </span>
+                             <div className="flex items-center gap-2 ml-auto">
+                                <button onClick={() => handleAudioClick(segment.id, segment.text)} disabled={generatingAudioId === segment.id}
+                                  className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${segment.audioUrl ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 font-bold' : 'bg-indigo-600 text-white'}`}>
+                                  {generatingAudioId === segment.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Volume2 className="w-3 h-3" />}
+                                  {segment.audioUrl ? 'Audio Ready' : 'Gen Audio'}
+                                </button>
+                                {segment.audioUrl && <button onClick={() => onDeleteAudio(segment.id)} className="text-slate-500 hover:text-red-400 p-1"><Trash2 className="w-3 h-3" /></button>}
                              </div>
-                        ))}
-                     </div>
-                  </div>
-               )}
+                        </div>
+                        <p className="text-slate-200 text-lg leading-relaxed font-serif">"{segment.text}"</p>
+                    </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-6">
+                   <div className="flex-1">
+                      <div className="flex justify-between items-center mb-2">
+                         <span className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
+                            <Grid3X3 className="w-3 h-3" /> 3x3 Variation Grid
+                         </span>
+                         {segment.masterGridImageUrl && (
+                            <button 
+                               onClick={() => onGenerateScene(segment.id, { aspectRatio, imageSize })}
+                               disabled={segment.isGenerating}
+                               className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 px-2 py-1 bg-indigo-500/10 rounded border border-indigo-500/20"
+                            >
+                               {segment.isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                               Regenerate 3x3
+                            </button>
+                         )}
+                      </div>
+
+                      {!segment.masterGridImageUrl ? (
+                         <div className="w-full aspect-[9/16] bg-slate-900/50 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center max-w-[400px] mx-auto">
+                            <button onClick={() => onGenerateScene(segment.id, { aspectRatio, imageSize })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold shadow-lg">
+                               <Grid3X3 className="w-4 h-4" /> {segment.isGenerating ? 'Rendering...' : 'Generate 3x3 Grid'}
+                            </button>
+                         </div>
+                      ) : (
+                         <div className="relative aspect-[9/16] rounded-lg overflow-hidden border border-slate-600 shadow-2xl bg-black max-w-[400px] mx-auto">
+                            <img src={segment.masterGridImageUrl} className="w-full h-full block object-cover" />
+                            <GridOverlay segment={segment} />
+                         </div>
+                      )}
+                   </div>
+
+                   {segment.generatedImageUrls.length > 0 && (
+                      <div className="w-full md:w-1/3 space-y-4">
+                         <div className="flex justify-between items-center border-b border-slate-700 pb-2">
+                             <span className="text-xs font-bold text-slate-500 uppercase">Selected Frames</span>
+                         </div>
+                         <div className="grid grid-cols-1 gap-4 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
+                            {segment.generatedImageUrls.map((url, idx) => (
+                                 <div key={idx} className="aspect-[9/16] overflow-hidden rounded-lg border border-indigo-500/30 shadow-xl bg-slate-900 group relative">
+                                     <img src={url} className="w-full h-full object-cover" />
+                                 </div>
+                            ))}
+                         </div>
+                      </div>
+                   )}
+                </div>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
-      {showPlayer && (
-        <SlideshowPlayer 
-          segments={segments} 
-          onClose={() => setShowPlayer(false)} 
-          onPlayAudio={onPlayAudio} // Not used in new logic but kept for interface
-          onStopAudio={onStopAudio}
-        />
-      )}
+      {showPlayer && <SlideshowPlayer segments={segments} onClose={() => setShowPlayer(false)} onPlayAudio={onPlayAudio} onStopAudio={onStopAudio} />}
     </div>
   );
 };

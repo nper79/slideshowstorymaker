@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
-import { StoryData, AspectRatio, ImageSize, StructuredScene, VideoClipPrompt } from "../types";
+import { StoryData, AspectRatio, ImageSize, StructuredScene, VideoClipPrompt, SegmentType } from "../types";
 
 const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -25,14 +25,13 @@ export const VOICES = [
   { name: 'Callirrhoe', gender: 'Female', style: 'Gentle & Soft' }
 ];
 
-// Replaced AudioBufferSourceNode with HTMLAudioElement for consistency with Blob URLs
 let currentAudio: HTMLAudioElement | null = null;
 
 export const stopAudio = () => {
   if (currentAudio) {
     try {
       currentAudio.pause();
-      currentAudio.onended = null; // Remove listeners
+      currentAudio.onended = null;
       currentAudio = null;
     } catch (e) {
       console.warn("Error stopping audio", e);
@@ -40,14 +39,13 @@ export const stopAudio = () => {
   }
 };
 
-const CONTEXT_RULES = `
-## THE "NO VACUUM" RULE (CONTEXT INFERENCE)
-You are forbidden from generating generic, empty scenes. You must logically INFER the environment based on the narrative context.
-`;
-
-const PRESERVATION_RULES = `
-## THE "ZERO DATA LOSS" PROTOCOL (CRITICAL)
-1. **VERBATIM TEXT**: The \`text\` field of every segment MUST be an EXACT copy-paste of the original sentences.
+const BIFURCATION_STRICT_RULES = `
+## THE VERBATIM BACKBONE PROTOCOL (CRITICAL)
+1. **ABSOLUTELY NO SUMMARIZATION**: You are FORBIDDEN from rewriting, shortening, or changing the author's words in 'MAIN' segments. 
+2. **VERBATIM CHUNKING**: Take the user's story and copy-paste it EXACTLY into 'MAIN' segments. Each segment should contain a block of 3 to 4 original sentences.
+3. **BIFURCATION**: Insert Choice Points between some MAIN segments. 
+4. **BRANCHES**: 'BRANCH' segments are the ONLY segments where you can write your own text to react to a choice.
+5. **MERGE**: Every BRANCH must eventually link back to the next sequential MAIN segment from the original story text.
 `;
 
 export const analyzeStoryText = async (storyText: string, artStyle: string): Promise<StoryData> => {
@@ -77,10 +75,9 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             id: { type: Type.STRING },
             name: { type: Type.STRING },
             description: { type: Type.STRING },
-            photographicDescription: { type: Type.STRING },
             visualPrompt: { type: Type.STRING }
           },
-          required: ["id", "name", "description", "photographicDescription", "visualPrompt"]
+          required: ["id", "name", "description", "visualPrompt"]
         }
       },
       settings: {
@@ -91,10 +88,9 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             id: { type: Type.STRING },
             name: { type: Type.STRING },
             description: { type: Type.STRING },
-            floorPlan: { type: Type.STRING },
             visualPrompt: { type: Type.STRING }
           },
-          required: ["id", "name", "description", "floorPlan", "visualPrompt"]
+          required: ["id", "name", "description", "visualPrompt"]
         }
       },
       segments: {
@@ -104,63 +100,32 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             text: { type: Type.STRING },
+            type: { type: Type.STRING, enum: ['MAIN', 'BRANCH', 'MERGE_POINT'] },
+            parentId: { type: Type.STRING },
             settingId: { type: Type.STRING },
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+            choices: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  text: { type: Type.STRING },
+                  targetSegmentId: { type: Type.STRING }
+                },
+                required: ["text", "targetSegmentId"]
+              }
+            },
+            nextSegmentId: { type: Type.STRING },
             quadrant: { type: Type.STRING },
-            temporalLogic: { type: Type.STRING },
             timeOfDay: { type: Type.STRING },
             keyVisualAction: { type: Type.STRING },
-            gridVariations: {
-              type: Type.ARRAY,
+            gridVariations: { 
+              type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: "Generate 9 DISTINCT visual interpretations of the scene."
-            },
-            structuredScene: {
-              type: Type.OBJECT,
-              properties: {
-                contextual_inference: { type: Type.STRING },
-                subject_details: {
-                  type: Type.OBJECT,
-                  properties: {
-                    appearance: { type: Type.STRING },
-                    clothing: { type: Type.STRING },
-                    expression: { type: Type.STRING }
-                  },
-                  required: ["appearance", "clothing", "expression"]
-                },
-                environment: {
-                  type: Type.OBJECT,
-                  properties: {
-                    setting: { type: Type.STRING },
-                    background_elements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    foreground_elements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    weather_and_atmosphere: { type: Type.STRING }
-                  },
-                  required: ["setting", "background_elements", "foreground_elements", "weather_and_atmosphere"]
-                },
-                lighting: {
-                  type: Type.OBJECT,
-                  properties: {
-                    primary_source: { type: Type.STRING },
-                    color_palette: { type: Type.STRING },
-                    shadows: { type: Type.STRING }
-                  },
-                  required: ["primary_source", "color_palette", "shadows"]
-                },
-                camera: {
-                  type: Type.OBJECT,
-                  properties: {
-                    shot_type: { type: Type.STRING },
-                    angle: { type: Type.STRING },
-                    lens_characteristics: { type: Type.STRING }
-                  },
-                  required: ["shot_type", "angle", "lens_characteristics"]
-                }
-              },
-              required: ["contextual_inference", "subject_details", "environment", "lighting", "camera"]
+              description: "MANDATORY: Provide exactly 9 distinct action descriptions for a 3x3 grid."
             }
           },
-          required: ["id", "text", "settingId", "characterIds", "quadrant", "temporalLogic", "timeOfDay", "keyVisualAction", "structuredScene", "gridVariations"]
+          required: ["id", "text", "type", "settingId", "characterIds", "quadrant", "timeOfDay", "keyVisualAction", "gridVariations"]
         }
       }
     },
@@ -169,44 +134,29 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
 
   const response = await ai.models.generateContent({
     model: MODEL_TEXT_ANALYSIS,
-    contents: `
-${PRESERVATION_RULES}
-${CONTEXT_RULES}
-Story: ${storyText}
-Style: ${artStyle}
-    `,
+    contents: `USER STORY: ${storyText}\nART STYLE: ${artStyle}\n\n${BIFURCATION_STRICT_RULES}\nChunk the story into 9-variation segments.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: schema,
       thinkingConfig: { thinkingBudget: 16384 },
-      systemInstruction: `You are a forensic storyboard director. Split text into chunks (3-4 sentences max per chunk).`
+      systemInstruction: `You are a script supervisor. Copy story text VERBATIM for MAIN segments.`
     }
   });
 
   if (!response.text) throw new Error("No response from AI");
   const data = JSON.parse(response.text);
 
-  data.segments = data.segments.map((seg: any) => {
-     if (seg.grid_variations && !seg.gridVariations) seg.gridVariations = seg.grid_variations;
-     if (seg.structuredScene) {
-        const s = seg.structuredScene;
-        const compiledPrompt = `
-Shot: ${s.camera.shot_type}, ${s.camera.angle}.
-Subject: ${s.subject_details.appearance}, ${s.subject_details.clothing}.
-Action: ${s.subject_details.expression}.
-Env: ${s.environment.setting}, ${s.environment.weather_and_atmosphere}.
-        `.trim();
-        return { ...seg, scenePrompt: compiledPrompt };
-     }
-     return seg;
-  });
+  data.segments = data.segments.map((seg: any) => ({
+    ...seg,
+    scenePrompt: `Cinematic scene: ${seg.keyVisualAction}. Style: ${artStyle}`
+  }));
 
   return { ...data, artStyle };
 };
 
 export const generateImage = async (
   prompt: string, 
-  aspectRatio: AspectRatio = AspectRatio.SQUARE, 
+  aspectRatio: AspectRatio = AspectRatio.MOBILE, 
   imageSize: ImageSize = ImageSize.K1, 
   refImages?: string[],
   globalStyle?: string,
@@ -215,22 +165,19 @@ export const generateImage = async (
   gridVariations?: string[]
 ): Promise<string> => {
   const ai = getAi();
-  
-  let safeAspectRatio = aspectRatio;
-  if (aspectRatio === AspectRatio.CINEMATIC) safeAspectRatio = AspectRatio.WIDE;
+  const safeAspectRatio = AspectRatio.MOBILE; // Always 9:16
 
-  const systemInstruction = `You are a high-end visual director. ${useGridMode ? `Create a precision 3x3 grid. 9 Equal Panels. Same Character/Setting. 9 DIFFERENT ACTIONS.` : 'Create a single scene.'} ${globalStyle || ''}`;
+  const systemInstruction = `You are a professional visual director. ${useGridMode ? 'MANDATORY: Create a SEAMLESS 3x3 grid containing exactly 9 vertical (9:16) frames. ABSOLUTELY NO BORDERS, NO GRID LINES, NO WHITE SPACE. The images MUST touch each other edge-to-edge. Each of the 9 cells must be a full 9:16 vertical composition.' : 'Create a single 9:16 vertical scene.'} Style: ${globalStyle || ''}`;
   
   let gridText = "";
   if (useGridMode && gridVariations) {
-     gridText = "Render 9 distinct panels based on these 9 actions:\n" + gridVariations.map((v, i) => `Panel ${i+1}: ${v}`).join('\n');
+     gridText = "MANDATORY: Create a 3x3 seamless contact sheet (9 frames total) for these actions:\n" + gridVariations.slice(0, 9).map((v, i) => `Frame ${i+1}: ${v}`).join('\n');
   }
 
   const parts: any[] = [{ text: `${prompt}\n${gridText}` }];
   if (refImages && refImages.length > 0) {
     refImages.forEach(base64Data => {
-      const cleanBase64 = base64Data.split(',')[1] || base64Data;
-      parts.push({ inlineData: { mimeType: 'image/png', data: cleanBase64 } });
+      parts.push({ inlineData: { mimeType: 'image/png', data: base64Data.split(',')[1] || base64Data } });
     });
   }
 
@@ -245,16 +192,12 @@ export const generateImage = async (
       });
       return extractImageFromResponse(response);
   } catch (error: any) {
-      // Fallback
-      if (error.message?.includes('IMAGE_OTHER') || error.message?.includes('500')) {
-         const fallbackResponse = await ai.models.generateContent({
-            model: MODEL_IMAGE_GEN_FALLBACK,
-            contents: { parts },
-            config: { imageConfig: { aspectRatio: safeAspectRatio }, systemInstruction }
-         });
-         return extractImageFromResponse(fallbackResponse);
-      }
-      throw error;
+      const fallbackResponse = await ai.models.generateContent({
+        model: MODEL_IMAGE_GEN_FALLBACK,
+        contents: { parts },
+        config: { imageConfig: { aspectRatio: safeAspectRatio }, systemInstruction }
+      });
+      return extractImageFromResponse(fallbackResponse);
   }
 };
 
@@ -272,7 +215,7 @@ export const editImage = async (base64Image: string, instruction: string): Promi
     contents: {
       parts: [
         { inlineData: { mimeType: 'image/png', data: base64Image.split(',')[1] || base64Image } },
-        { text: `Edit this image: ${instruction}` },
+        { text: `Edit this 9:16 vertical image: ${instruction}` },
       ],
     },
   });
@@ -291,89 +234,50 @@ export const generateSpeech = async (text: string, voiceName: string = 'Puck'): 
   });
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   if (!base64Audio) throw new Error("No audio generated");
-  
   const binaryString = atob(base64Audio);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
   return bytes.buffer;
 };
 
-// Helper for writing string to DataView
 const writeString = (view: DataView, offset: number, string: string) => {
-  for (let i = 0; i < string.length; i++) {
-    view.setUint8(offset + i, string.charCodeAt(i));
-  }
+  for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
 };
 
-/**
- * Creates a standard WAV Blob from PCM 16-bit 24kHz Mono data.
- * This is CRITICAL for browser compatibility (Chrome/Safari need headers).
- */
 export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000): Blob => {
-  // Check if already WAV (RIFF header)
   if (audioData.byteLength >= 4) {
     const view = new DataView(audioData);
-    // RIFF is 0x52494646 (Big Endian logic for string check)
-    // But getUint32(0, false) reads Big Endian.
-    if (view.getUint32(0, false) === 0x52494646) {
-       return new Blob([audioData], { type: 'audio/wav' });
-    }
+    if (view.getUint32(0, false) === 0x52494646) return new Blob([audioData], { type: 'audio/wav' });
   }
-
   const dataLen = audioData.byteLength;
   const numChannels = 1;
   const bitsPerSample = 16;
-  const blockAlign = (numChannels * bitsPerSample) / 8; // 2
-  const byteRate = sampleRate * blockAlign; // 48000
-  
+  const blockAlign = 2;
+  const byteRate = sampleRate * blockAlign;
   const buffer = new ArrayBuffer(44 + dataLen);
   const view = new DataView(buffer);
-
-  // RIFF chunk
   writeString(view, 0, 'RIFF');
   view.setUint32(4, 36 + dataLen, true);
   writeString(view, 8, 'WAVE');
-  
-  // fmt chunk
   writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-  view.setUint16(20, 1, true); // AudioFormat (1 = PCM)
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
   view.setUint16(34, bitsPerSample, true);
-
-  // data chunk
   writeString(view, 36, 'data');
   view.setUint32(40, dataLen, true);
-
-  // Write PCM data
-  const pcmBytes = new Uint8Array(audioData);
-  const wavBytes = new Uint8Array(buffer, 44);
-  wavBytes.set(pcmBytes);
-
+  new Uint8Array(buffer, 44).set(new Uint8Array(audioData));
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
 export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
     stopAudio();
-    
-    // Create correct WAV blob for browser compatibility
-    const blob = createWavBlob(audioData);
-    const url = URL.createObjectURL(blob);
-    
-    const audio = new Audio(url);
-    currentAudio = audio; // Track for stopping
-    
-    try {
-        await audio.play();
-    } catch (e) {
-        console.error("Audio playback failed", e);
-    }
+    const url = URL.createObjectURL(createWavBlob(audioData));
+    currentAudio = new Audio(url);
+    try { await currentAudio.play(); } catch (e) {}
 };
 
 export const planVideoSequence = async (
@@ -383,7 +287,6 @@ export const planVideoSequence = async (
     gridDescriptions: string[]
 ): Promise<VideoClipPrompt[]> => {
     const ai = getAi();
-    
     const schema: Schema = {
         type: Type.ARRAY,
         items: {
@@ -398,35 +301,11 @@ export const planVideoSequence = async (
             required: ['frameIndex', 'duration', 'type', 'prompt', 'reasoning']
         }
     };
-
-    // Calculate generic target per clip to guide the model, but let it decide the final logic
-    const avgDuration = totalDuration / selectedIndices.length;
-
     const response = await ai.models.generateContent({
-        model: MODEL_TEXT_ANALYSIS, // Using Pro model for logic
-        contents: `
-You are a Video Editor and Prompt Engineer.
-Context: "${segmentText}"
-Total Audio Duration: ${totalDuration.toFixed(3)} seconds.
-Selected Keyframes (Indices): ${JSON.stringify(selectedIndices)}.
-Descriptions for these frames: ${JSON.stringify(gridDescriptions)}.
-
-GOAL: Break down the total audio duration into ${selectedIndices.length} video clips.
-STRATEGY:
-1. Assign standard actions (2s - 4s) to the first few clips.
-2. The LAST clip (or the most static one) must be a "LOOP_BUFFER". This clip's duration must account for the exact remaining fractional seconds (e.g., if total is 7.4s, and first two are 2s + 2s, the last one is 3.4s).
-3. "LOOP_BUFFER" prompts must describe a "Cinemagraph" or "Subtle Idle Loop" (start visual = end visual) so it can be cut at ANY point without looking abrupt.
-4. "ACTION" prompts should describe the specific movement based on the grid description.
-
-Output a JSON array of the plan.
-        `,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            thinkingConfig: { thinkingBudget: 4096 } // Light thinking for math
-        }
+        model: MODEL_TEXT_ANALYSIS,
+        contents: `Audio Duration: ${totalDuration.toFixed(3)}s. Selected: ${JSON.stringify(selectedIndices)}. Descriptions: ${JSON.stringify(gridDescriptions)}. Create plan.`,
+        config: { responseMimeType: "application/json", responseSchema: schema }
     });
-
     if (!response.text) throw new Error("Failed to plan video");
     return JSON.parse(response.text) as VideoClipPrompt[];
 }
