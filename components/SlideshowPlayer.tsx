@@ -66,8 +66,6 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
       }
   };
 
-  const imageSrc = currentSegment.generatedImageUrls?.[0] || currentSegment.startFrameUrl || currentSegment.combinedKeyframeUrl;
-
   return createPortal(
     <div className="fixed inset-0 z-[10000] bg-black text-white flex flex-col overflow-hidden">
       <audio ref={audioRef} onEnded={handleAudioEnded} className="hidden" />
@@ -78,8 +76,8 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
              <video ref={videoRef} src={currentSegment.videoUrl} autoPlay loop muted className="w-full h-full object-cover" />
         ) : (
              <div className="relative w-full h-full">
-                {imageSrc && (
-                    <img src={imageSrc} className="w-full h-full object-cover animate-ken-burns" alt="Scene" />
+                {currentSegment.generatedImageUrls?.[0] && (
+                    <img src={currentSegment.generatedImageUrls[0]} className="w-full h-full object-cover animate-ken-burns" alt="Scene" />
                 )}
                 <div className="absolute inset-0 bg-black/40" />
              </div>

@@ -1,7 +1,7 @@
-
 export enum ProcessingStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
+  GENERATING_ASSETS = 'GENERATING_ASSETS',
   READY = 'READY',
   ERROR = 'ERROR'
 }
@@ -10,6 +10,7 @@ export interface Character {
   id: string;
   name: string;
   description: string;
+  visualPrompt: string;
   imageUrl?: string;
   isGenerating?: boolean;
 }
@@ -18,8 +19,38 @@ export interface Setting {
   id: string;
   name: string;
   description: string;
+  visualPrompt: string;
   imageUrl?: string;
   isGenerating?: boolean;
+}
+
+export interface CinematicDNA {
+  cameraSystem: string;
+  colorPalette: string;
+  lightingPhilosophy: string;
+  filmStock: string;
+  visualMood: string;
+}
+
+export interface StructuredScene {
+  subject_details: { appearance: string; clothing: string; expression: string; };
+  environment: { setting: string; background_elements: string[]; foreground_elements: string[]; weather_and_atmosphere: string; };
+  lighting: { primary_source: string; color_palette: string; shadows: string; };
+  camera: { shot_type: string; angle: string; lens_characteristics: string; };
+  contextual_inference: string;
+}
+
+export interface VideoClipPrompt {
+  frameIndex: number;
+  duration: number;
+  type: 'ACTION' | 'LOOP_BUFFER';
+  prompt: string;
+  reasoning: string;
+}
+
+export interface Choice {
+  text: string;
+  targetSegmentId: string;
 }
 
 export enum SegmentType {
@@ -33,45 +64,48 @@ export interface StorySegment {
   text: string;
   settingId: string;
   characterIds: string[];
+  quadrant: string;
+  temporalLogic: string; 
+  timeOfDay: string; 
+  keyVisualAction: string; 
+  scenePrompt: string; 
+  structuredScene?: StructuredScene;
   type: SegmentType;
-  
-  // Split Keyframe Logic
-  combinedKeyframePrompt: string; // Instrução para gerar os 2 frames lado a lado
-  combinedKeyframeUrl?: string;   // Imagem 1x1 original
-  startFrameUrl?: string;         // Fatia Esquerda
-  endFrameUrl?: string;           // Fatia Direita
-  
-  isGeneratingKeyframes?: boolean;
-  isVideoGenerating?: boolean;
-  
-  // Video & Audio
-  videoUrl?: string;
-  videoObject?: any;
+  parentId?: string;
+  choices?: Choice[];
+  nextSegmentId?: string;
+  masterGridImageUrl?: string;
+  selectedGridIndices: number[];
+  gridVariations?: string[]; 
+  generatedImageUrls: string[]; 
   audioUrl?: string;
   audioDuration?: number;
-  
-  choices?: { text: string; targetSegmentId: string; }[];
-  isGenerating?: boolean; // Para áudio/outros
-
-  // Additional fields for compatibility
-  generatedImageUrls?: string[];
-  masterGridImageUrl?: string;
-  selectedGridIndices?: number[];
-  scenePrompt?: string;
-  gridVariations?: boolean;
-  generatedImageUrl?: string;
-  imageOptions?: any;
+  videoUrl?: string;
+  isVideoGenerating?: boolean;
+  isGenerating?: boolean;
 }
 
 export interface StoryData {
   title: string;
   artStyle: string;
-  visualStyleGuide?: string;
-  cinematicDNA?: any;
+  visualStyleGuide: string; 
+  cinematicDNA: CinematicDNA; 
   segments: StorySegment[];
   characters: Character[];
   settings: Setting[];
 }
 
-export enum AspectRatio { MOBILE = "9:16", LANDSCAPE = "16:9", PORTRAIT = "3:4", STANDARD = "4:3" }
-export enum ImageSize { K1 = "1K", K2 = "2K" }
+export enum AspectRatio {
+  SQUARE = "1:1",
+  PORTRAIT = "3:4",
+  LANDSCAPE = "4:3",
+  WIDE = "16:9",
+  MOBILE = "9:16",
+  CINEMATIC = "21:9"
+}
+
+export enum ImageSize {
+  K1 = "1K",
+  K2 = "2K",
+  K4 = "4K"
+}

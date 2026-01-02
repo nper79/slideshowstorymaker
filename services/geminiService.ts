@@ -6,7 +6,10 @@ const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const MODEL_TEXT_ANALYSIS = 'gemini-3-pro-preview'; 
 const MODEL_IMAGE_GEN = 'gemini-3-pro-image-preview'; 
+const MODEL_IMAGE_GEN_FALLBACK = 'gemini-2.5-flash-image'; 
+const MODEL_IMAGE_EDIT = 'gemini-3-pro-image-preview'; 
 const MODEL_TTS = 'gemini-2.5-flash-preview-tts';
+const MODEL_VIDEO_FAST = 'veo-3.1-fast-generate-preview';
 const MODEL_VIDEO_HD = 'veo-3.1-generate-preview';
 
 export const VOICES = [
@@ -52,24 +55,6 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
     properties: {
       title: { type: Type.STRING },
       artStyle: { type: Type.STRING },
-      segments: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            text: { type: Type.STRING },
-            type: { type: Type.STRING, enum: ['MAIN', 'BRANCH', 'MERGE_POINT'] },
-            settingId: { type: Type.STRING },
-            characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-            combinedKeyframePrompt: { 
-              type: Type.STRING, 
-              description: "Prompt for a 4:3 image containing TWO distinct panels side-by-side. Structure: 'SPLIT SCREEN. LEFT PANEL (Zoom In): [Extreme Close-up of Character Face, Expression]. RIGHT PANEL (Wide Shot): [Full Body of SAME Character, Action].'. CRITICAL: You MUST explicitly COPY AND PASTE the exact clothing description from the Character Profile into both the Left and Right descriptions to ensure they look identical." 
-            }
-          },
-          required: ["id", "text", "type", "settingId", "characterIds", "combinedKeyframePrompt"]
-        }
-      },
       characters: {
         type: Type.ARRAY,
         items: {
@@ -77,10 +62,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             name: { type: Type.STRING },
-            description: { 
-                type: Type.STRING,
-                description: "THE HOLY GRAIL OF CONSISTENCY. You MUST define a specific 'COSTUME' for this character that they wear throughout the entire story. Example: 'Wearing a dirty red hoodie, torn blue jeans, and combat boots'. DO NOT say 'clothes change'. Keep it static." 
-            }
+            description: { type: Type.STRING, description: "Visual description (appearance, clothes, face)." }
           },
           required: ["id", "name", "description"]
         }
@@ -92,12 +74,29 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             name: { type: Type.STRING },
-            description: { 
-                type: Type.STRING,
-                description: "Physical description of the location layout, architecture, and lighting." 
-            }
+            description: { type: Type.STRING, description: "Visual description of the location/environment." }
           },
           required: ["id", "name", "description"]
+        }
+      },
+      segments: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            text: { type: Type.STRING, description: "EXACT COPY of a small chunk of the original text (2-3 sentences). NO REWRITING." },
+            type: { type: Type.STRING, enum: ['MAIN', 'BRANCH', 'MERGE_POINT'] },
+            settingId: { type: Type.STRING },
+            characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+            scenePrompt: { type: Type.STRING, description: "Detailed visual prompt for this specific moment." },
+            gridVariations: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "A list of 9 distinct cinematic variations (angles, framings) for this scene to generate a 3x3 grid."
+            }
+          },
+          required: ["id", "text", "type", "settingId", "characterIds", "scenePrompt", "gridVariations"]
         }
       }
     },
@@ -105,77 +104,130 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   };
 
   const systemInstruction = `
-  You are a Director of Photography and Video Editor AI.
+  You are a Cinematic Storyboard Assistant.
   
-  RULE 1: ASSET FILTERING & CONSISTENCY
-  - **Characters:** Only create profiles for people appearing >1 time. DEFINE A STATIC COSTUME (e.g., "White shirt, blue tie"). This costume MUST NOT CHANGE.
-  - **Settings:** Only create profiles for locations appearing >1 time.
-  - **Reference:** In 'combinedKeyframePrompt', REPEAT the costume description VERBATIM every time.
-
-  RULE 2: HYPER-SEGMENTATION (CRITICAL FIX)
-  - **DO NOT SUMMARIZE.**
-  - **DO NOT GROUP PARAGRAPHS.**
-  - **ACTION:** Slice the story into tiny beats of **MAXIMUM 2-3 SENTENCES** each.
-  - If a paragraph has 6 sentences, split it into 3 separate segments.
-  - The output should contain MANY segments (e.g., for a 500-word story, expect 20+ segments).
-  - Every single sentence of the input text must be preserved across the segments.
-
-  RULE 3: SCENE VISUALIZATION
-  - Ideally, every 10-15 seconds of reading time creates a new visual beat.
-  - Split long dialogue exchanges into separate beats (Speaker A -> Segment 1, Speaker B -> Segment 2).
+  CRITICAL RULE: NO SUMMARIZATION.
+  - You MUST output the **EXACT ORIGINAL TEXT** provided by the user.
+  - Slice the text into small segments of **2 to 3 sentences max**.
+  
+  Task:
+  1. Extract CHARACTERS (names + visual descriptions).
+  2. Extract SETTINGS (names + visual descriptions).
+  3. Create SEGMENTS with scene prompts and 9 grid variations for the storyboard.
   `;
 
   const response = await ai.models.generateContent({
     model: MODEL_TEXT_ANALYSIS,
-    contents: `FULL STORY:\n${storyText}\n\nSTYLE: ${artStyle}`,
+    contents: `FULL RAW TEXT:\n${storyText}\n\nSTYLE: ${artStyle}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: schema,
       systemInstruction: systemInstruction,
-      thinkingConfig: { thinkingBudget: 16000 }
+      thinkingConfig: { thinkingBudget: 8192 }
     }
   });
 
   return JSON.parse(response.text || "{}");
 };
 
-export const generateImage = async (prompt: string, aspectRatio: string = "4:3", size: string = "1K", refImages: string[] = []): Promise<string> => {
+export const generateImage = async (
+  prompt: string, 
+  aspectRatio: AspectRatio = AspectRatio.MOBILE, 
+  imageSize: ImageSize = ImageSize.K1, 
+  refImages?: string[],
+  globalStyle?: string,
+  cinematicDNA?: any,
+  useGridMode: boolean = false,
+  gridVariations?: string[]
+): Promise<string> => {
   const ai = getAi();
-  const parts: any[] = [{ text: prompt }];
   
-  refImages.forEach(img => {
-    parts.push({ inlineData: { mimeType: 'image/png', data: img.split(',')[1] || img } });
-  });
+  // Force MOBILE aspect ratio for grid generation to ensure high vertical resolution
+  const configAspectRatio = useGridMode ? AspectRatio.MOBILE : aspectRatio;
+
+  const systemInstruction = `You are an expert concept artist. Style: ${globalStyle || 'Cinematic'}. ${useGridMode ? 'Format: 3x3 High Precision Contact Sheet.' : ''}`;
+  
+  const promptParts = [`Visual prompt: ${prompt}`];
+  
+  if (useGridMode && gridVariations) {
+    promptParts.push(`Create a 3x3 grid layout (contact sheet) showing 9 variations of this scene:\n${gridVariations.map((v, i) => `${i+1}. ${v}`).join('\n')}`);
+  }
+
+  const parts: any[] = [{ text: promptParts.join("\n") }];
+  
+  if (refImages && refImages.length > 0) {
+    refImages.forEach(b64 => {
+      parts.push({ inlineData: { mimeType: 'image/png', data: b64.split(',')[1] || b64 } });
+    });
+  }
+
+  try {
+      const response = await ai.models.generateContent({
+        model: MODEL_IMAGE_GEN,
+        contents: { parts },
+        config: { imageConfig: { aspectRatio: configAspectRatio, imageSize }, systemInstruction }
+      });
+      const data = response.candidates?.[0].content.parts.find((p: any) => p.inlineData)?.inlineData?.data;
+      if (!data) throw new Error("No image data");
+      return `data:image/png;base64,${data}`;
+  } catch (error: any) {
+      const fallbackResponse = await ai.models.generateContent({
+        model: MODEL_IMAGE_GEN_FALLBACK,
+        contents: { parts },
+        config: { imageConfig: { aspectRatio: configAspectRatio }, systemInstruction }
+      });
+      const data = fallbackResponse.candidates?.[0].content.parts.find((p: any) => p.inlineData)?.inlineData?.data;
+      if (!data) throw new Error("Image gen failed");
+      return `data:image/png;base64,${data}`;
+  }
+};
+
+export const editImage = async (base64Image: string, instruction: string): Promise<string> => {
+  const ai = getAi();
+  const parts = [
+    { inlineData: { data: base64Image.split(',')[1] || base64Image, mimeType: 'image/png' } },
+    { text: instruction }
+  ];
 
   const response = await ai.models.generateContent({
-    model: MODEL_IMAGE_GEN,
+    model: MODEL_IMAGE_EDIT,
     contents: { parts },
-    config: { imageConfig: { aspectRatio: aspectRatio as any, imageSize: size as any } }
   });
 
   const data = response.candidates?.[0].content.parts.find((p: any) => p.inlineData)?.inlineData?.data;
-  if (!data) throw new Error("Image generation failed");
+  if (!data) throw new Error("Image edit failed");
   return `data:image/png;base64,${data}`;
 };
 
-export const generateVideoBetweenFrames = async (prompt: string, startFrameB64: string, endFrameB64: string): Promise<{ url: string, videoObject: any }> => {
+export const generateInitialVideo = async (prompt: string, imageBase64: string): Promise<{ url: string, videoObject: any }> => {
+  const ai = getAi();
+  let operation = await ai.models.generateVideos({
+    model: MODEL_VIDEO_FAST,
+    prompt: prompt,
+    image: { imageBytes: imageBase64.split(',')[1] || imageBase64, mimeType: 'image/png' },
+    config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '9:16' }
+  });
+
+  while (!operation.done) {
+    await new Promise(r => setTimeout(r, 8000));
+    operation = await ai.operations.getVideosOperation({ operation });
+  }
+
+  const videoMeta = operation.response?.generatedVideos?.[0]?.video;
+  if (!videoMeta?.uri) throw new Error("Video generation failed");
+
+  const response = await fetch(`${videoMeta.uri}&key=${process.env.API_KEY}`);
+  const blob = await response.blob();
+  return { url: URL.createObjectURL(blob), videoObject: videoMeta };
+};
+
+export const extendVideo = async (prompt: string, previousVideoObject: any): Promise<{ url: string, videoObject: any }> => {
   const ai = getAi();
   let operation = await ai.models.generateVideos({
     model: MODEL_VIDEO_HD,
     prompt: prompt,
-    image: {
-      imageBytes: startFrameB64.split(',')[1] || startFrameB64,
-      mimeType: 'image/png'
-    },
-    config: {
-      numberOfVideos: 1,
-      resolution: '720p',
-      aspectRatio: '9:16', // STRICTLY 9:16 VERTICAL
-      lastFrame: {
-        imageBytes: endFrameB64.split(',')[1] || endFrameB64,
-        mimeType: 'image/png'
-      }
-    }
+    video: previousVideoObject,
+    config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '9:16' }
   });
 
   while (!operation.done) {
@@ -184,14 +236,14 @@ export const generateVideoBetweenFrames = async (prompt: string, startFrameB64: 
   }
 
   const videoMeta = operation.response?.generatedVideos?.[0]?.video;
-  if (!videoMeta?.uri) throw new Error("Video render failed");
+  if (!videoMeta?.uri) throw new Error("Extension failed");
 
   const response = await fetch(`${videoMeta.uri}&key=${process.env.API_KEY}`);
   const blob = await response.blob();
   return { url: URL.createObjectURL(blob), videoObject: videoMeta };
 };
 
-export const generateSpeech = async (text: string, voiceName: string): Promise<ArrayBuffer> => {
+export const generateSpeech = async (text: string, voiceName: string = 'Puck'): Promise<ArrayBuffer> => {
   const ai = getAi();
   const response = await ai.models.generateContent({
     model: MODEL_TTS,
@@ -202,14 +254,14 @@ export const generateSpeech = async (text: string, voiceName: string): Promise<A
     },
   });
   const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!data) throw new Error("Speech failed");
+  if (!data) throw new Error("Speech synthesis failed");
   const binary = atob(data);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes.buffer;
 };
 
-export const createWavBlob = (audioData: ArrayBuffer): Blob => {
+export const createWavBlob = (audioData: ArrayBuffer, sampleRate: number = 24000): Blob => {
   const dataLen = audioData.byteLength;
   const buffer = new ArrayBuffer(44 + dataLen);
   const view = new DataView(buffer);
@@ -221,8 +273,8 @@ export const createWavBlob = (audioData: ArrayBuffer): Blob => {
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
   view.setUint16(22, 1, true);
-  view.setUint32(24, 24000, true);
-  view.setUint32(28, 48000, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
   writeString(view, 36, 'data');
