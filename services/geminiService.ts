@@ -85,7 +85,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           type: Type.OBJECT,
           properties: {
             id: { type: Type.STRING },
-            text: { type: Type.STRING, description: "EXACT COPY of a chunk of the original text (4-5 sentences). NO REWRITING." },
+            text: { type: Type.STRING, description: "Original text segment (3-4 sentences)." },
             type: { type: Type.STRING, enum: ['MAIN', 'BRANCH', 'MERGE_POINT'] },
             settingId: { type: Type.STRING },
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -104,16 +104,24 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   };
 
   const systemInstruction = `
-  You are a Cinematic Storyboard Assistant.
+  You are a Cinematic Storyboard Assistant and Director.
   
-  CRITICAL RULE: NO SUMMARIZATION.
-  - You MUST output the **EXACT ORIGINAL TEXT** provided by the user.
-  - Slice the text into segments of **4 to 5 sentences**. This is longer than usual to allow for complex scene building.
+  Your goal is to break the story into small segments (3-4 sentences max) and plan the visual assets.
   
-  Task:
-  1. Extract CHARACTERS (names + visual descriptions).
-  2. Extract SETTINGS (names + visual descriptions).
-  3. Create SEGMENTS with scene prompts and 9 grid variations for the storyboard.
+  CRITICAL: For each segment, you must act as a Director and plan 9 distinct camera shots (Grid Variations) that capture the essence of that specific moment.
+  
+  For 'gridVariations', provide exactly 9 strings describing different angles, for example:
+  1. Wide establishing shot
+  2. Over-the-shoulder shot of character A
+  3. Extreme close-up on eyes
+  4. Low angle looking up (hero shot)
+  5. Dutch angle (tension)
+  6. Handheld camera movement
+  7. Top-down view
+  8. Rack focus on object
+  9. Silhouette against light
+  
+  Ensure the variations match the emotional tone of the text segment.
   `;
 
   const response = await ai.models.generateContent({
@@ -128,59 +136,6 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   });
 
   return JSON.parse(response.text || "{}");
-};
-
-export const generateBeatPrompts = async (sceneText: string, variations: string[], selectedIndices: number[]): Promise<Record<number, string>> => {
-  const ai = getAi();
-  
-  // We want to generate a specific video prompt for each selected index
-  const schema = {
-    type: Type.OBJECT,
-    properties: {
-      prompts: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            index: { type: Type.INTEGER },
-            videoPrompt: { type: Type.STRING, description: "A concise, cinematic prompt for a video generation model describing the movement." }
-          },
-          required: ["index", "videoPrompt"]
-        }
-      }
-    }
-  };
-
-  const selectedVariations = selectedIndices.map(i => `Index ${i}: ${variations[i] || 'Scene shot'}`).join('\n');
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview', // Fast model for text
-    contents: `
-      Scene Context: "${sceneText}"
-      
-      The user selected the following camera angles/variations from a storyboard grid:
-      ${selectedVariations}
-      
-      For each selected index, generate a specific video prompt for Veo (video generation model). 
-      The prompt should describe the **movement** and **action** happening in that specific shot, consistent with the scene text.
-      Keep it cinematic, clear, and focused on motion (e.g., "Slow push in as character turns head", "Handheld tracking shot of...").
-    `,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: schema
-    }
-  });
-
-  const result = JSON.parse(response.text || "{}");
-  const map: Record<number, string> = {};
-  
-  if (result.prompts) {
-    result.prompts.forEach((p: any) => {
-      map[p.index] = p.videoPrompt;
-    });
-  }
-  
-  return map;
 };
 
 export const generateImage = async (

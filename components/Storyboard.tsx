@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Volume2, Grid3X3, Camera, Loader2, Trash2, Film, Sparkles, Check, MonitorPlay } from 'lucide-react';
+import { Clapperboard, Play, Volume2, Grid3X3, Camera, Loader2, Trash2, Film, Check } from 'lucide-react';
 import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -9,7 +9,6 @@ import html2canvas from 'html2canvas';
 interface StoryboardProps {
   segments: StorySegment[];
   onGenerateScene: (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => void;
-  onGenerateVideoPrompts: (segmentId: string) => void;
   onGenerateVideo: (segmentId: string, imageIndex: number) => void;
   onPlayAudio: (segmentId: string, text: string) => Promise<void>;
   onStopAudio: () => void;
@@ -20,7 +19,6 @@ interface StoryboardProps {
 const Storyboard: React.FC<StoryboardProps> = ({ 
   segments, 
   onGenerateScene,
-  onGenerateVideoPrompts,
   onGenerateVideo,
   onPlayAudio,
   onStopAudio,
@@ -71,8 +69,6 @@ const Storyboard: React.FC<StoryboardProps> = ({
       <div ref={storyboardContentRef} className="space-y-12 pb-20 p-2">
         {segments.map((segment, index) => {
           const isBranch = segment.type === SegmentType.BRANCH;
-          const hasSelectedBeats = segment.selectedGridIndices && segment.selectedGridIndices.length > 0;
-          const hasGeneratedPrompts = segment.beatPrompts && Object.keys(segment.beatPrompts).length > 0;
           
           return (
           <div key={segment.id} className={`relative transition-all duration-500 ${isBranch ? 'ml-12 border-l-2 border-indigo-500/30 pl-8 pb-8' : ''}`}>
@@ -104,7 +100,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
                 </div>
             </div>
 
-            {/* Content: Grid vs Beats */}
+            {/* Content: Grid vs Selected Beats */}
             <div className="bg-slate-900/40 p-6 rounded-b-2xl border-x border-b border-slate-700/50 flex flex-col xl:flex-row gap-8">
                
                {/* LEFT: Master Grid */}
@@ -112,19 +108,22 @@ const Storyboard: React.FC<StoryboardProps> = ({
                    <div className="flex justify-between items-center mb-4">
                       <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
                           <Grid3X3 className="w-4 h-4 text-indigo-400" /> 
-                          1. Select Beats
+                          1. Generate & Select Beats
                       </span>
                    </div>
 
                    {!segment.masterGridImageUrl ? (
                        <div className="aspect-[9/16] bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center">
                           <button onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors">
-                             <Grid3X3 className="w-4 h-4" /> {segment.isGenerating ? 'Rendering Grid...' : 'Generate 3x3 Grid'}
+                             <Grid3X3 className="w-4 h-4" /> {segment.isGenerating ? 'Director creating shots...' : 'Generate 3x3 Grid'}
                           </button>
                        </div>
                    ) : (
                        <div className="relative aspect-[9/16] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+                          {/* The Master Image */}
                           <img src={segment.masterGridImageUrl} className="w-full h-full object-cover" />
+                          
+                          {/* Transparent Overlay Grid for Selection */}
                           <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
                              {Array.from({ length: 9 }).map((_, i) => {
                                const isSelected = segment.selectedGridIndices?.includes(i);
@@ -149,76 +148,30 @@ const Storyboard: React.FC<StoryboardProps> = ({
                    )}
                </div>
 
-               {/* RIGHT: Selected Beats & Prompts */}
-               <div className="flex-[2] flex flex-col">
-                    <div className="flex justify-between items-center mb-4 h-6">
+               {/* RIGHT: Selected Beats Preview */}
+               <div className="flex-[2]">
+                    <div className="flex justify-between items-center mb-4">
                         <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
                             <Film className="w-4 h-4 text-pink-400" /> 
-                            2. Animate Selected Beats
+                            2. Selected Beats
                         </span>
-                        
-                        {hasSelectedBeats && (
-                            <button 
-                                onClick={() => onGenerateVideoPrompts(segment.id)}
-                                disabled={segment.isGenerating}
-                                className="text-xs font-bold bg-pink-600 hover:bg-pink-500 text-white px-3 py-1.5 rounded flex items-center gap-2 transition-colors disabled:opacity-50"
-                            >
-                                {segment.isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                                Generate Video Prompts
-                            </button>
-                        )}
                     </div>
 
-                    <div className="flex-1 bg-slate-900/50 rounded-xl border border-slate-800 p-4 min-h-[400px]">
-                        {!hasSelectedBeats ? (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-600 gap-2">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {(!segment.generatedImageUrls || segment.generatedImageUrls.length === 0) ? (
+                            <div className="col-span-full h-40 flex flex-col items-center justify-center text-slate-600 gap-2 border border-dashed border-slate-800 rounded-xl">
                                 <Grid3X3 className="w-8 h-8 opacity-20" />
-                                <p className="text-sm">Select images from the grid to create beats.</p>
+                                <p className="text-sm">Select beats from the grid to use in your story.</p>
                             </div>
                         ) : (
-                            <div className="space-y-4">
-                                {segment.selectedGridIndices.map((gridIndex, idx) => {
-                                    const imgUrl = segment.generatedImageUrls[idx];
-                                    const prompt = segment.beatPrompts?.[gridIndex];
-                                    
-                                    return (
-                                        <div key={`${segment.id}-beat-${gridIndex}`} className="flex gap-4 bg-slate-800 p-3 rounded-lg border border-slate-700 items-start">
-                                            {/* Thumbnail */}
-                                            <div className="w-24 aspect-[9/16] bg-black rounded overflow-hidden shrink-0 border border-slate-600">
-                                                {imgUrl && <img src={imgUrl} className="w-full h-full object-cover" />}
-                                            </div>
-
-                                            {/* Content */}
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <h4 className="text-xs font-bold text-indigo-300 uppercase">Beat {idx + 1}</h4>
-                                                    
-                                                    {prompt && (
-                                                        <button 
-                                                            onClick={() => onGenerateVideo(segment.id, idx)}
-                                                            disabled={segment.isVideoGenerating}
-                                                            className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1.5 transition-colors"
-                                                        >
-                                                            {segment.isVideoGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <MonitorPlay className="w-3 h-3" />}
-                                                            Render Veo Video
-                                                        </button>
-                                                    )}
-                                                </div>
-
-                                                {!prompt ? (
-                                                    <div className="h-20 flex items-center justify-center bg-slate-900/50 rounded text-slate-500 text-xs italic">
-                                                        Click "Generate Video Prompts" to define motion.
-                                                    </div>
-                                                ) : (
-                                                    <div className="bg-black/30 p-2 rounded border border-white/5">
-                                                        <p className="text-xs text-slate-300 leading-relaxed font-mono">{prompt}</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                            segment.generatedImageUrls.map((url, idx) => (
+                                <div key={idx} className="aspect-[9/16] bg-slate-950 rounded-lg overflow-hidden border border-slate-700 relative group">
+                                     <img src={url} className="w-full h-full object-cover" />
+                                     <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                                        <span className="text-[10px] font-bold text-white">Beat {idx + 1}</span>
+                                     </div>
+                                </div>
+                            ))
                         )}
                     </div>
                </div>

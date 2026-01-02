@@ -1,3 +1,4 @@
+
 /**
  * Crops a specific cell from a 3x3 grid image with high precision.
  * @param base64Image The full master grid image

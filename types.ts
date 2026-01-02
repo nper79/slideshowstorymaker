@@ -79,10 +79,6 @@ export interface StorySegment {
   selectedGridIndices: number[];
   gridVariations?: string[]; 
   generatedImageUrls: string[]; 
-  
-  // New: Mapping grid index (0-8) to a specific video prompt string
-  beatPrompts?: Record<number, string>; 
-  
   audioUrl?: string;
   audioDuration?: number;
   videoUrl?: string;

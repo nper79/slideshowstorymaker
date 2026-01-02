@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Key, Upload, Download, XCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload, XCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import StoryInput from './components/StoryInput';
 import AssetGallery from './components/AssetGallery';
 import Storyboard from './components/Storyboard';
@@ -9,7 +9,11 @@ import * as GeminiService from './services/geminiService';
 import * as StorageService from './services/storageService';
 import { cropGridCell } from './utils/imageUtils';
 
-enum Tab { INPUT = 'input', ASSETS = 'assets', STORYBOARD = 'storyboard' }
+enum Tab {
+  INPUT = 'input',
+  ASSETS = 'assets',
+  STORYBOARD = 'storyboard'
+}
 
 interface AIStudio {
   hasSelectedApiKey(): Promise<boolean>;
@@ -35,14 +39,34 @@ export default function App() {
   useEffect(() => {
     const checkKey = async () => {
       const aistudio = (window as any).aistudio as AIStudio | undefined;
-      if (aistudio && (await aistudio.hasSelectedApiKey())) setHasApiKey(true);
+      if (aistudio) {
+        try {
+          const selected = await aistudio.hasSelectedApiKey();
+          if (selected) setHasApiKey(true);
+        } catch (e) { console.error("Error checking API key:", e); }
+      }
     };
     checkKey();
+    const cleanupBackground = () => {
+        const canvases = document.querySelectorAll('body > canvas');
+        canvases.forEach((c: any) => {
+            c.style.display = 'none';
+            if(c.parentNode) c.parentNode.removeChild(c);
+        });
+    };
+    cleanupBackground();
+    const interval = setInterval(cleanupBackground, 500);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSelectKey = async () => {
     const aistudio = (window as any).aistudio as AIStudio | undefined;
-    if (aistudio) { await aistudio.openSelectKey(); setHasApiKey(true); }
+    if (aistudio) {
+      try {
+        await aistudio.openSelectKey();
+        setHasApiKey(true);
+      } catch (e) { console.error("Error selecting API key:", e); }
+    }
   };
 
   const handleAnalyzeStory = async (text: string, style: string) => {
@@ -51,14 +75,18 @@ export default function App() {
     addToast("Decomposing narrative structure...", "info");
     try {
       const data = await GeminiService.analyzeStoryText(text, style);
-      setStoryData({ ...data, segments: data.segments.map(s => ({ ...s, selectedGridIndices: [], generatedImageUrls: [] })) });
+      const initializedSegments = data.segments.map(s => ({
+          ...s,
+          selectedGridIndices: [],
+          generatedImageUrls: []
+      }));
+      setStoryData({ ...data, segments: initializedSegments });
       setStatus(ProcessingStatus.READY);
-      setActiveTab(Tab.ASSETS); // Go to Assets first to generate characters
+      setActiveTab(Tab.ASSETS);
       addToast("Analysis complete.", "success");
-    } catch (e: any) {
-      console.error("Analysis Error:", e);
+    } catch (error: any) {
       setStatus(ProcessingStatus.ERROR);
-      setError(e.message || "Failed to analyze story.");
+      setError("Analysis failed. Try shortening the text.");
       addToast("Analysis failed.", "error");
     }
   };
@@ -71,11 +99,19 @@ export default function App() {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
       
+      // RESTORED: Specific side-by-side prompt logic
       const prompt = `Side by side photo of a closeup face, and full body character design, of ${char.name}, ${char.description}. On the left, a tight closeup of their face and shoulders. On the right, their whole form is framed. They are wearing a detailed outfit consistent with: ${char.description}. On a flat dark slate background, captured in photography style with edge lighting for depth to separate them from the darkness, 8k, photorealistic, consistency in clothing across both panels.`;
 
-      // Use LANDSCAPE to accommodate the side-by-side nature effectively
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.LANDSCAPE, ImageSize.K1);
-      
+      const imageUrl = await GeminiService.generateImage(
+          prompt, 
+          AspectRatio.LANDSCAPE, // Using Landscape for side-by-side
+          ImageSize.K1, 
+          [], 
+          storyData.visualStyleGuide, 
+          storyData.cinematicDNA, 
+          false
+      );
+
       setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c) }) : null);
     } catch (e) {
       setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: false } : c) }) : null);
@@ -89,56 +125,10 @@ export default function App() {
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      const imageUrl = await GeminiService.generateImage(`Environment Art: ${setting.name}. ${setting.description}. Style: ${storyData.artStyle}`, AspectRatio.LANDSCAPE, ImageSize.K1);
+      const imageUrl = await GeminiService.generateImage(`Environment: ${setting.name}. ${setting.description}`, AspectRatio.LANDSCAPE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s) }) : null);
     } catch (e) {
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
-    }
-  };
-
-  const handleGenerateVideoPrompts = async (segmentId: string) => {
-     if (!storyData) return;
-     setStoryData(prev => prev ? ({...prev, segments: prev.segments.map(s => s.id === segmentId ? {...s, isGenerating: true} : s)}) : null);
-     addToast("Generating motion prompts for selected beats...", "info");
-     try {
-       const segment = storyData.segments.find(s => s.id === segmentId);
-       if (!segment || !segment.gridVariations) return;
-       
-       const prompts = await GeminiService.generateBeatPrompts(segment.text, segment.gridVariations, segment.selectedGridIndices);
-       
-       setStoryData(prev => prev ? ({
-         ...prev,
-         segments: prev.segments.map(s => s.id === segmentId ? { ...s, beatPrompts: prompts, isGenerating: false } : s)
-       }) : null);
-       addToast("Motion prompts generated!", "success");
-     } catch (e) {
-       setStoryData(prev => prev ? ({...prev, segments: prev.segments.map(s => s.id === segmentId ? {...s, isGenerating: false} : s)}) : null);
-       addToast("Failed to generate motion prompts", "error");
-     }
-  };
-
-  const handleGenerateVideo = async (segmentId: string, imageIndex: number) => {
-    if (!storyData) return;
-    
-    // We flag the whole segment as video generating for now, or you could do it per beat if you change the type
-    setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isVideoGenerating: true } : s) }) : null);
-    addToast("Rendering cinematic video (Veo 3.1)...", "info");
-    try {
-      const segment = storyData.segments.find(s => s.id === segmentId);
-      if (!segment || !segment.generatedImageUrls[imageIndex]) return;
-      
-      const prompt = segment.beatPrompts?.[segment.selectedGridIndices[imageIndex]] || segment.scenePrompt;
-      const image = segment.generatedImageUrls[imageIndex];
-
-      // Note: In a multi-video setup, you might want to store an array of videoUrls. 
-      // For this simplified version, we'll just overwrite the main videoUrl for previewing.
-      
-      const { url, videoObject } = await GeminiService.generateInitialVideo(prompt, image);
-      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, videoUrl: url, videoObject, isVideoGenerating: false } : s) }) : null);
-      addToast("Video beat ready!", "success");
-    } catch (e: any) {
-      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isVideoGenerating: false } : s) }) : null);
-      addToast(`Video failed: ${e.message}`, "error");
     }
   };
 
@@ -147,27 +137,110 @@ export default function App() {
     setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
     try {
       const segment = storyData.segments.find(s => s.id === segmentId);
-      if (!segment) throw new Error();
-      
+      if (!segment) throw new Error("Segment not found");
       const refImages: string[] = [];
       segment.characterIds.forEach(charId => {
-         const char = storyData.characters.find(c => c.id === charId);
-         if (char?.imageUrl) refImages.push(char.imageUrl);
+        const char = storyData.characters.find(c => c.id === charId);
+        if (char?.imageUrl) refImages.push(char.imageUrl);
       });
-
-      // Simple prompt + Grid request
-      const gridUrl = await GeminiService.generateImage(segment.scenePrompt, AspectRatio.MOBILE, options.imageSize, refImages, storyData.artStyle, {}, true, segment.gridVariations);
+      const setting = storyData.settings.find(s => s.id === segment.settingId);
+      if (setting?.imageUrl) refImages.push(setting.imageUrl);
       
-      // We don't auto-crop anymore, user selects manually
-      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, masterGridImageUrl: gridUrl, selectedGridIndices: [], generatedImageUrls: [], isGenerating: false } : s) }) : null);
-    } catch (e) {
+      const masterGridUrl = await GeminiService.generateImage(segment.scenePrompt, AspectRatio.MOBILE, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA, true, segment.gridVariations);
+      const defaultIndex = 0;
+      const croppedImage = await cropGridCell(masterGridUrl, defaultIndex);
+      setStoryData(prev => prev ? ({
+        ...prev,
+        segments: prev.segments.map(s => s.id === segmentId ? { 
+            ...s, 
+            masterGridImageUrl: masterGridUrl, 
+            selectedGridIndices: [defaultIndex],
+            generatedImageUrls: [croppedImage],
+            isGenerating: false 
+        } : s)
+      }) : null);
+    } catch (e: any) {
        setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
        addToast("Visual generation failed.", "error");
     }
   };
 
+  const handleSelectOption = async (segmentId: string, optionIndex: number) => {
+    if (!storyData) return;
+    const segment = storyData.segments.find(s => s.id === segmentId);
+    if (!segment || !segment.masterGridImageUrl) return;
+    try {
+        let newIndices = [...(segment.selectedGridIndices || [])];
+        if (newIndices.includes(optionIndex)) newIndices = newIndices.filter(i => i !== optionIndex);
+        else newIndices.push(optionIndex);
+        const newImages = await Promise.all(newIndices.map(async (idx) => await cropGridCell(segment.masterGridImageUrl!, idx)));
+        setStoryData(prev => prev ? ({
+            ...prev,
+            segments: prev.segments.map(s => s.id === segmentId ? { ...s, selectedGridIndices: newIndices, generatedImageUrls: newImages } : s)
+        }) : null);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleEditImage = async (segmentId: string, instruction: string) => {
+      // Placeholder for edit functionality if needed, kept from previous state
+  };
+
+  const handleDeleteAudio = (segmentId: string) => {
+     if (!storyData) return;
+     setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: undefined, audioDuration: undefined } : s) }) : null);
+  };
+
+  const handleGenerateAndPlayAudio = async (segmentId: string, text: string): Promise<void> => {
+      const segment = storyData?.segments.find(s => s.id === segmentId);
+      if (segment?.audioUrl) {
+          const audio = new Audio(segment.audioUrl);
+          await audio.play();
+          return;
+      }
+      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
+      try {
+          const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
+          const blob = GeminiService.createWavBlob(audioBuffer);
+          const url = URL.createObjectURL(blob);
+          const duration = audioBuffer.byteLength / 48000;
+          setStoryData(prev => prev ? ({
+              ...prev, 
+              segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: url, audioDuration: duration, isGenerating: false } : s)
+          }) : null);
+      } catch (e) {
+          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
+      }
+  };
+
+  const handleStopAudio = () => GeminiService.stopAudio();
+  const handleExport = async () => { if (storyData) await StorageService.exportProject(storyData); };
+  const handleImportClick = () => fileInputRef.current?.click();
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const { data } = await StorageService.importProject(file);
+      setStoryData(data);
+      setStatus(ProcessingStatus.READY);
+      setActiveTab(Tab.STORYBOARD);
+      addToast("Project imported.", "success");
+    } catch (e) { alert("Import failed."); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
+  };
+
+  if (!hasApiKey) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center p-4 relative z-50">
+        <div className="max-w-md w-full bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-2xl text-center">
+          <Key className="w-16 h-16 text-indigo-400 mx-auto mb-6" />
+          <h1 className="text-3xl font-bold text-white mb-4">Access Required</h1>
+          <button onClick={handleSelectKey} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-lg">Select API Key</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200">
+    <div className="min-h-screen bg-[#0f172a] text-slate-200 relative z-50">
       {/* Toast Overlay */}
       <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
         {toasts.map(t => (
@@ -180,94 +253,47 @@ export default function App() {
         ))}
       </div>
 
-      {!hasApiKey ? (
-        <div className="min-h-screen flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-slate-800 rounded-xl p-8 border border-slate-700 text-center shadow-2xl">
-            <Key className="w-16 h-16 text-indigo-400 mx-auto mb-6" />
-            <h1 className="text-3xl font-bold text-white mb-4">Gemini AI Engine</h1>
-            <p className="text-slate-400 mb-8 text-sm">Please select a paid API key to unlock cinematic story analysis and Veo video generation.</p>
-            <button onClick={handleSelectKey} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-lg transition-all">Select Key & Start</button>
+      <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur h-16 flex items-center px-4 md:px-8 justify-between">
+          <div className="flex items-center gap-2">
+              <Layout className="w-8 h-8 text-indigo-500" />
+              <span className="text-xl font-bold">StoryBoard AI</span>
           </div>
-        </div>
-      ) : (
-        <>
-          <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur h-16 flex items-center px-4 md:px-8 justify-between">
-              <div className="flex items-center gap-2">
-                  <Layout className="w-8 h-8 text-indigo-500" />
-                  <span className="text-xl font-bold tracking-tight">StoryBoard AI</span>
-              </div>
-              <div className="flex gap-4">
-                  <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={async (e) => {
-                      const file = e.target.files?.[0]; if (!file) return;
-                      try {
-                        const { data } = await StorageService.importProject(file);
-                        setStoryData(data); setActiveTab(Tab.STORYBOARD);
-                        addToast("Project imported.", "success");
-                      } catch(err) { addToast("Import failed.", "error"); }
-                  }} />
-                  <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-xs font-bold flex items-center gap-2">
-                    <Upload className="w-4 h-4" /> Import ZIP
-                  </button>
-                  {storyData && (
-                    <div className="flex bg-slate-800 rounded p-1">
-                      <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded text-xs font-bold ${activeTab === Tab.INPUT ? 'bg-indigo-600' : ''}`}>STORY</button>
-                      <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded text-xs font-bold ${activeTab === Tab.ASSETS ? 'bg-indigo-600' : ''}`}>ASSETS</button>
-                      <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded text-xs font-bold ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600' : ''}`}>BOARD</button>
-                    </div>
-                  )}
-              </div>
-          </nav>
-          
-          <main className="max-w-[1600px] mx-auto px-4 py-8">
-            {error && (
+          <div className="flex gap-4">
+               <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
+               <button onClick={handleImportClick} className="px-3 py-1.5 bg-slate-800 rounded border border-slate-700 flex items-center gap-2"><Upload className="w-4 h-4" /> Import</button>
+               {storyData && <button onClick={handleExport} className="px-3 py-1.5 bg-slate-800 rounded border border-slate-700 flex items-center gap-2"><Download className="w-4 h-4" /> Export</button>}
+               {storyData && (
+                <div className="flex bg-slate-800 rounded p-1">
+                  <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.INPUT ? 'bg-indigo-600' : ''}`}>Story</button>
+                  <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.ASSETS ? 'bg-indigo-600' : ''}`}>Assets</button>
+                  <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600' : ''}`}>Storyboard</button>
+                </div>
+              )}
+          </div>
+      </nav>
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {error && (
               <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-start gap-4 text-red-200">
                 <AlertTriangle className="w-6 h-6 shrink-0" />
                 <div>
-                  <h3 className="font-bold text-red-400">Analysis Error</h3>
+                  <h3 className="font-bold text-red-400">Error</h3>
                   <p className="text-sm">{error}</p>
                 </div>
               </div>
-            )}
+        )}
 
-            {activeTab === Tab.INPUT && <StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} />}
-            {activeTab === Tab.ASSETS && storyData && <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />}
-            {activeTab === Tab.STORYBOARD && storyData && <Storyboard 
-                segments={storyData.segments} 
-                onGenerateScene={handleGenerateScene} 
-                onGenerateVideoPrompts={handleGenerateVideoPrompts}
-                onGenerateVideo={handleGenerateVideo}
-                onSelectOption={async (id, idx) => {
-                   const seg = storyData.segments.find(s => s.id === id);
-                   if (!seg?.masterGridImageUrl) return;
-                   
-                   // Toggle logic
-                   let newIndices = [...(seg.selectedGridIndices || [])];
-                   if (newIndices.includes(idx)) {
-                       // Remove
-                       newIndices = newIndices.filter(i => i !== idx);
-                   } else {
-                       // Add
-                       newIndices.push(idx);
-                   }
-                   
-                   // We re-generate the cropped images array based on selection
-                   const newImages = await Promise.all(newIndices.map(async (i) => await cropGridCell(seg.masterGridImageUrl!, i)));
-
-                   setStoryData(p => p ? ({...p, segments: p.segments.map(s => s.id === id ? {...s, selectedGridIndices: newIndices, generatedImageUrls: newImages} : s)}) : null);
-                }} 
-                onPlayAudio={async (id, text) => {
-                    setStoryData(p => p ? ({...p, segments: p.segments.map(s => s.id === id ? {...s, isGenerating: true} : s)}) : null);
-                    try {
-                      const buf = await GeminiService.generateSpeech(text, selectedVoice);
-                      const url = URL.createObjectURL(GeminiService.createWavBlob(buf));
-                      setStoryData(p => p ? ({...p, segments: p.segments.map(s => s.id === id ? {...s, audioUrl: url, isGenerating: false} : s)}) : null);
-                    } catch(e) { setStoryData(p => p ? ({...p, segments: p.segments.map(s => s.id === id ? {...s, isGenerating: false} : s)}) : null); }
-                }} 
-                onStopAudio={GeminiService.stopAudio} 
-                onDeleteAudio={id => setStoryData(p => p ? ({...p, segments: p.segments.map(s => s.id === id ? {...s, audioUrl: undefined} : s)}) : null)} />}
-          </main>
-        </>
-      )}
+        {activeTab === Tab.INPUT && <StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} />}
+        {activeTab === Tab.ASSETS && storyData && <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />}
+        {activeTab === Tab.STORYBOARD && storyData && <Storyboard 
+            segments={storyData.segments} 
+            onGenerateScene={handleGenerateScene} 
+            onGenerateVideo={(id, idx) => addToast("Video Generation available in next update", "info")}
+            onSelectOption={handleSelectOption} 
+            onPlayAudio={handleGenerateAndPlayAudio} 
+            onStopAudio={handleStopAudio} 
+            onDeleteAudio={handleDeleteAudio} 
+        />}
+      </main>
     </div>
   );
 }
