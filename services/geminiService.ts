@@ -145,25 +145,26 @@ export const generateImage = async (
 ): Promise<string> => {
   const ai = getAi();
   
-  // Force LANDSCAPE (4:3) aspect ratio for grid generation.
-  // This helps the model generate a 2x2 grid where each cell is also 4:3 (Cinematic), preventing 1x4 vertical stacking.
-  const configAspectRatio = useGridMode ? AspectRatio.LANDSCAPE : aspectRatio;
+  // Use user-requested aspect ratio (defaulting to MOBILE 9:16).
+  // If the user wants a grid in 9:16, the result will be a 2x2 grid where each cell is also 9:16.
+  const configAspectRatio = aspectRatio;
 
   const systemInstruction = `You are an expert concept artist. Style: ${globalStyle || 'Cinematic'}. 
-  ${useGridMode ? 'FORMAT REQUIREMENT: 2x2 Split Screen Grid. The output MUST be a single image divided into exactly 4 equal rectangular panels (2 columns x 2 rows).' : ''}`;
+  ${useGridMode ? 'FORMAT REQUIREMENT: 2x2 Split Screen Grid on a Vertical Canvas.' : ''}`;
   
   const promptParts = [`Visual prompt: ${prompt}`];
   
   if (useGridMode && gridVariations) {
     promptParts.push(`
-      STRICT LAYOUT: Create a 2x2 Grid (Contact Sheet) containing exactly 4 distinct panels.
-      - Structure: 2 columns by 2 rows.
-      - Geometry: All 4 panels must be equal size. No borders, frames, or gutters between panels. Edge-to-edge.
-      - FORBIDDEN: Do NOT create a vertical strip (1 column x 4 rows) or horizontal strip (4 columns x 1 row). It MUST be 2x2.
-      - Content: The 4 panels must correspond to these 4 descriptions in order (reading left-to-right, top-to-bottom):
-      ${gridVariations.map((v, i) => `  ${i+1}. ${v}`).join('\n')}
-      
-      - Consistency: Ensure characters and environment look consistent across all 4 panels.
+STRICT LAYOUT: Create a 2x2 Grid (Contact Sheet) containing exactly 4 distinct panels.
+- Structure: 2 columns by 2 rows.
+- Composition: The entire final image must be a tall, vertical orientation (9:16 aspect ratio) containing the grid.
+- Geometry: All 4 panels must be equal size. No borders, frames, or gutters between panels. Edge-to-edge.
+- FORBIDDEN: Do NOT create a vertical strip (1 column x 4 rows) or horizontal strip (4 columns x 1 row). It MUST be 2x2.
+- Content: The 4 panels must correspond to these 4 descriptions in order (reading left-to-right, top-to-bottom):
+${gridVariations.map((v, i) => `  ${i+1}. ${v}`).join('\n')}
+
+- Consistency: Ensure characters and environment look consistent across all 4 panels.
     `);
   }
 

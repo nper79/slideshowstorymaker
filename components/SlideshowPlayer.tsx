@@ -26,10 +26,7 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
 
   const startStory = () => {
       setHasStarted(true);
-      if (audioRef.current && currentSegment?.audioUrl) {
-          audioRef.current.src = currentSegment.audioUrl;
-          audioRef.current.play();
-      }
+      // Playback is handled by useEffect to avoid race conditions
   };
 
   useEffect(() => {
@@ -38,17 +35,38 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
       if (!audio) return;
       setShowChoices(false);
 
-      if (currentSegment?.audioUrl) {
-          audio.src = currentSegment.audioUrl;
-          audio.play();
-      } else {
-          setTimeout(() => handleAudioEnded(), 5000);
-      }
+      let timeoutId: ReturnType<typeof setTimeout>;
 
-      if (videoRef.current && currentSegment.videoUrl) {
-          videoRef.current.currentTime = 0;
-          videoRef.current.play();
-      }
+      const playMedia = async () => {
+        // Handle Audio
+        if (currentSegment?.audioUrl) {
+            audio.src = currentSegment.audioUrl;
+            try {
+                await audio.play();
+            } catch (err) {
+                // Ignore AbortError which happens when skipping quickly
+                if ((err as any).name !== 'AbortError') {
+                    console.warn("Audio playback interrupted:", err);
+                }
+            }
+        } else {
+            // Auto-advance if no audio
+            timeoutId = setTimeout(() => handleAudioEnded(), 5000);
+        }
+
+        // Handle Video
+        if (videoRef.current && currentSegment.videoUrl) {
+            videoRef.current.currentTime = 0;
+            videoRef.current.play().catch(e => console.warn("Video play failed", e));
+        }
+      };
+
+      playMedia();
+
+      return () => {
+          if (timeoutId) clearTimeout(timeoutId);
+          audio.pause();
+      };
   }, [currentSegmentId, hasStarted]);
 
   const handleChoice = (targetId: string) => {

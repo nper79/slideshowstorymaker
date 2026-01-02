@@ -104,7 +104,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
             <div className="bg-slate-900/40 p-6 rounded-b-2xl border-x border-b border-slate-700/50 flex flex-col xl:flex-row gap-8">
                
                {/* LEFT: Master Grid */}
-               <div className="flex-1 max-w-md">
+               <div className="flex-1 max-w-sm mx-auto xl:mx-0">
                    <div className="flex justify-between items-center mb-4">
                       <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
                           <Grid className="w-4 h-4 text-indigo-400" /> 
@@ -112,7 +112,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
                       </span>
                       {segment.masterGridImageUrl && (
                         <button 
-                          onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.LANDSCAPE, imageSize: ImageSize.K1 })}
+                          onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
                           disabled={segment.isGenerating}
                           className="text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 px-2 py-1 rounded flex items-center gap-1.5 transition-all"
                         >
@@ -122,14 +122,15 @@ const Storyboard: React.FC<StoryboardProps> = ({
                       )}
                    </div>
 
+                   {/* Master Grid Container - Now 9:16 Vertical */}
                    {!segment.masterGridImageUrl ? (
-                       <div className="aspect-[4/3] bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center">
-                          <button onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.LANDSCAPE, imageSize: ImageSize.K1 })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors">
+                       <div className="aspect-[9/16] bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center">
+                          <button onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors shadow-lg shadow-indigo-500/20">
                              <Grid className="w-4 h-4" /> {segment.isGenerating ? 'Director creating shots...' : 'Generate 2x2 Grid'}
                           </button>
                        </div>
                    ) : (
-                       <div className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+                       <div className="relative aspect-[9/16] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
                           {/* The Master Image */}
                           <img src={segment.masterGridImageUrl} className="w-full h-full object-cover" />
                           
@@ -176,7 +177,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
                         </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         {(!segment.generatedImageUrls || segment.generatedImageUrls.length === 0) ? (
                             <div className="col-span-full h-40 flex flex-col items-center justify-center text-slate-600 gap-2 border border-dashed border-slate-800 rounded-xl">
                                 <Grid className="w-8 h-8 opacity-20" />
@@ -184,7 +185,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
                             </div>
                         ) : (
                             segment.generatedImageUrls.map((url, idx) => (
-                                <div key={idx} className="aspect-[4/3] bg-slate-950 rounded-lg overflow-hidden border border-slate-700 relative group">
+                                <div key={idx} className="aspect-[9/16] bg-slate-950 rounded-lg overflow-hidden border border-slate-700 relative group shadow-lg">
                                      <img src={url} className="w-full h-full object-cover" />
                                      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                                         <span className="text-[10px] font-bold text-white">Beat {idx + 1}</span>

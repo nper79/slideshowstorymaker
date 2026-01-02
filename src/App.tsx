@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload } from 'lucide-react';
 import StoryInput from './components/StoryInput';
@@ -153,22 +154,6 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
-  const handleEditImage = async (segmentId: string, instruction: string) => {
-      if (!storyData) return;
-      const segment = storyData.segments.find(s => s.id === segmentId);
-      if (!segment || !segment.generatedImageUrls?.length) return;
-      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
-      try {
-          const newImageUrl = await GeminiService.editImage(segment.generatedImageUrls[0], instruction);
-          setStoryData(prev => prev ? ({
-              ...prev,
-              segments: prev.segments.map(s => s.id === segmentId ? { ...s, generatedImageUrls: [newImageUrl, ...s.generatedImageUrls.slice(1)], isGenerating: false } : s)
-          }) : null);
-      } catch(e) {
-          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
-      }
-  };
-
   const handleDeleteAudio = (segmentId: string) => {
      if (!storyData) return;
      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: undefined, audioDuration: undefined } : s) }) : null);
@@ -191,7 +176,6 @@ export default function App() {
               ...prev, 
               segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: url, audioDuration: duration, isGenerating: false } : s)
           }) : null);
-          // Removed auto-play here as requested
       } catch (e) {
           setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
       }
@@ -246,7 +230,15 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         {activeTab === Tab.INPUT && <StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} />}
         {activeTab === Tab.ASSETS && storyData && <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />}
-        {activeTab === Tab.STORYBOARD && storyData && <Storyboard segments={storyData.segments} characters={storyData.characters} settings={storyData.settings} onGenerateScene={handleGenerateScene} onEditImage={handleEditImage} onPlayAudio={handleGenerateAndPlayAudio} onStopAudio={handleStopAudio} onSelectOption={handleSelectOption} onDeleteAudio={handleDeleteAudio} />}
+        {activeTab === Tab.STORYBOARD && storyData && <Storyboard 
+            segments={storyData.segments} 
+            onGenerateScene={handleGenerateScene} 
+            onGenerateVideo={(id, idx) => alert("Video generation coming soon")}
+            onPlayAudio={handleGenerateAndPlayAudio} 
+            onStopAudio={handleStopAudio} 
+            onSelectOption={handleSelectOption} 
+            onDeleteAudio={handleDeleteAudio} 
+        />}
       </main>
     </div>
   );
