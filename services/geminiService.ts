@@ -93,7 +93,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             gridVariations: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: "A list of 9 distinct cinematic variations (angles, framings) for this scene to generate a 3x3 grid."
+              description: "A list of exactly 4 distinct cinematic variations (angles, framings) for this scene to generate a 2x2 grid."
             }
           },
           required: ["id", "text", "type", "settingId", "characterIds", "scenePrompt", "gridVariations"]
@@ -108,18 +108,13 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   
   Your goal is to break the story into small segments (3-4 sentences max) and plan the visual assets.
   
-  CRITICAL: For each segment, you must act as a Director and plan 9 distinct camera shots (Grid Variations) that capture the essence of that specific moment.
+  CRITICAL: For each segment, you must act as a Director and plan EXACTLY 4 distinct camera shots (Grid Variations) that capture the essence of that specific moment.
   
-  For 'gridVariations', provide exactly 9 strings describing different angles, for example:
+  For 'gridVariations', provide exactly 4 strings describing different angles, for example:
   1. Wide establishing shot
   2. Over-the-shoulder shot of character A
   3. Extreme close-up on eyes
   4. Low angle looking up (hero shot)
-  5. Dutch angle (tension)
-  6. Handheld camera movement
-  7. Top-down view
-  8. Rack focus on object
-  9. Silhouette against light
   
   Ensure the variations match the emotional tone of the text segment.
   `;
@@ -150,15 +145,26 @@ export const generateImage = async (
 ): Promise<string> => {
   const ai = getAi();
   
-  // Force MOBILE aspect ratio for grid generation to ensure high vertical resolution
-  const configAspectRatio = useGridMode ? AspectRatio.MOBILE : aspectRatio;
+  // Force LANDSCAPE (4:3) aspect ratio for grid generation.
+  // This helps the model generate a 2x2 grid where each cell is also 4:3 (Cinematic), preventing 1x4 vertical stacking.
+  const configAspectRatio = useGridMode ? AspectRatio.LANDSCAPE : aspectRatio;
 
-  const systemInstruction = `You are an expert concept artist. Style: ${globalStyle || 'Cinematic'}. ${useGridMode ? 'Format: 3x3 High Precision Contact Sheet.' : ''}`;
+  const systemInstruction = `You are an expert concept artist. Style: ${globalStyle || 'Cinematic'}. 
+  ${useGridMode ? 'FORMAT REQUIREMENT: 2x2 Split Screen Grid. The output MUST be a single image divided into exactly 4 equal rectangular panels (2 columns x 2 rows).' : ''}`;
   
   const promptParts = [`Visual prompt: ${prompt}`];
   
   if (useGridMode && gridVariations) {
-    promptParts.push(`Create a 3x3 grid layout (contact sheet) showing 9 variations of this scene:\n${gridVariations.map((v, i) => `${i+1}. ${v}`).join('\n')}`);
+    promptParts.push(`
+      STRICT LAYOUT: Create a 2x2 Grid (Contact Sheet) containing exactly 4 distinct panels.
+      - Structure: 2 columns by 2 rows.
+      - Geometry: All 4 panels must be equal size. No borders, frames, or gutters between panels. Edge-to-edge.
+      - FORBIDDEN: Do NOT create a vertical strip (1 column x 4 rows) or horizontal strip (4 columns x 1 row). It MUST be 2x2.
+      - Content: The 4 panels must correspond to these 4 descriptions in order (reading left-to-right, top-to-bottom):
+      ${gridVariations.map((v, i) => `  ${i+1}. ${v}`).join('\n')}
+      
+      - Consistency: Ensure characters and environment look consistent across all 4 panels.
+    `);
   }
 
   const parts: any[] = [{ text: promptParts.join("\n") }];

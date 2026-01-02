@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Volume2, Grid3X3, Camera, Loader2, Trash2, Film, Check } from 'lucide-react';
+import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw } from 'lucide-react';
 import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -107,25 +107,44 @@ const Storyboard: React.FC<StoryboardProps> = ({
                <div className="flex-1 max-w-md">
                    <div className="flex justify-between items-center mb-4">
                       <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
-                          <Grid3X3 className="w-4 h-4 text-indigo-400" /> 
+                          <Grid className="w-4 h-4 text-indigo-400" /> 
                           1. Generate & Select Beats
                       </span>
+                      {segment.masterGridImageUrl && (
+                        <button 
+                          onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.LANDSCAPE, imageSize: ImageSize.K1 })}
+                          disabled={segment.isGenerating}
+                          className="text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 px-2 py-1 rounded flex items-center gap-1.5 transition-all"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${segment.isGenerating ? 'animate-spin' : ''}`} />
+                          Regenerate
+                        </button>
+                      )}
                    </div>
 
                    {!segment.masterGridImageUrl ? (
-                       <div className="aspect-[9/16] bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center">
-                          <button onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors">
-                             <Grid3X3 className="w-4 h-4" /> {segment.isGenerating ? 'Director creating shots...' : 'Generate 3x3 Grid'}
+                       <div className="aspect-[4/3] bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center">
+                          <button onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.LANDSCAPE, imageSize: ImageSize.K1 })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors">
+                             <Grid className="w-4 h-4" /> {segment.isGenerating ? 'Director creating shots...' : 'Generate 2x2 Grid'}
                           </button>
                        </div>
                    ) : (
-                       <div className="relative aspect-[9/16] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+                       <div className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
                           {/* The Master Image */}
                           <img src={segment.masterGridImageUrl} className="w-full h-full object-cover" />
                           
-                          {/* Transparent Overlay Grid for Selection */}
-                          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
-                             {Array.from({ length: 9 }).map((_, i) => {
+                          {segment.isGenerating && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-sm">
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+                                    <span className="text-xs font-bold text-white">Regenerating shots...</span>
+                                  </div>
+                              </div>
+                          )}
+
+                          {/* Transparent Overlay Grid for Selection - 2x2 Grid */}
+                          <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
+                             {Array.from({ length: 4 }).map((_, i) => {
                                const isSelected = segment.selectedGridIndices?.includes(i);
                                return (
                                  <button 
@@ -157,15 +176,15 @@ const Storyboard: React.FC<StoryboardProps> = ({
                         </span>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                         {(!segment.generatedImageUrls || segment.generatedImageUrls.length === 0) ? (
                             <div className="col-span-full h-40 flex flex-col items-center justify-center text-slate-600 gap-2 border border-dashed border-slate-800 rounded-xl">
-                                <Grid3X3 className="w-8 h-8 opacity-20" />
+                                <Grid className="w-8 h-8 opacity-20" />
                                 <p className="text-sm">Select beats from the grid to use in your story.</p>
                             </div>
                         ) : (
                             segment.generatedImageUrls.map((url, idx) => (
-                                <div key={idx} className="aspect-[9/16] bg-slate-950 rounded-lg overflow-hidden border border-slate-700 relative group">
+                                <div key={idx} className="aspect-[4/3] bg-slate-950 rounded-lg overflow-hidden border border-slate-700 relative group">
                                      <img src={url} className="w-full h-full object-cover" />
                                      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                                         <span className="text-[10px] font-bold text-white">Beat {idx + 1}</span>

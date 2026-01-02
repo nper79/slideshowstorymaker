@@ -1,8 +1,8 @@
 
 /**
- * Crops a specific cell from a 3x3 grid image with high precision.
+ * Crops a specific cell from a 2x2 grid image with high precision.
  * @param base64Image The full master grid image
- * @param index The index of the cell (0-8)
+ * @param index The index of the cell (0-3)
  * @returns Promise resolving to the cropped base64 image
  */
 export const cropGridCell = (base64Image: string, index: number): Promise<string> => {
@@ -17,12 +17,12 @@ export const cropGridCell = (base64Image: string, index: number): Promise<string
           return;
         }
   
-        // 3x3 grid calculation
-        const cellWidth = img.width / 3;
-        const cellHeight = img.height / 3;
+        // 2x2 grid calculation
+        const cellWidth = img.width / 2;
+        const cellHeight = img.height / 2;
   
-        const col = index % 3;
-        const row = Math.floor(index / 3);
+        const col = index % 2;
+        const row = Math.floor(index / 2);
   
         const sx = col * cellWidth;
         const sy = row * cellHeight;
