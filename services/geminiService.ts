@@ -85,7 +85,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           type: Type.OBJECT,
           properties: {
             id: { type: Type.STRING },
-            text: { type: Type.STRING, description: "EXACT COPY of a small chunk of the original text (2-3 sentences). NO REWRITING." },
+            text: { type: Type.STRING, description: "EXACT COPY of a chunk of the original text (4-5 sentences). NO REWRITING." },
             type: { type: Type.STRING, enum: ['MAIN', 'BRANCH', 'MERGE_POINT'] },
             settingId: { type: Type.STRING },
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -108,7 +108,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   
   CRITICAL RULE: NO SUMMARIZATION.
   - You MUST output the **EXACT ORIGINAL TEXT** provided by the user.
-  - Slice the text into small segments of **2 to 3 sentences max**.
+  - Slice the text into segments of **4 to 5 sentences**. This is longer than usual to allow for complex scene building.
   
   Task:
   1. Extract CHARACTERS (names + visual descriptions).
@@ -128,6 +128,59 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   });
 
   return JSON.parse(response.text || "{}");
+};
+
+export const generateBeatPrompts = async (sceneText: string, variations: string[], selectedIndices: number[]): Promise<Record<number, string>> => {
+  const ai = getAi();
+  
+  // We want to generate a specific video prompt for each selected index
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      prompts: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            index: { type: Type.INTEGER },
+            videoPrompt: { type: Type.STRING, description: "A concise, cinematic prompt for a video generation model describing the movement." }
+          },
+          required: ["index", "videoPrompt"]
+        }
+      }
+    }
+  };
+
+  const selectedVariations = selectedIndices.map(i => `Index ${i}: ${variations[i] || 'Scene shot'}`).join('\n');
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview', // Fast model for text
+    contents: `
+      Scene Context: "${sceneText}"
+      
+      The user selected the following camera angles/variations from a storyboard grid:
+      ${selectedVariations}
+      
+      For each selected index, generate a specific video prompt for Veo (video generation model). 
+      The prompt should describe the **movement** and **action** happening in that specific shot, consistent with the scene text.
+      Keep it cinematic, clear, and focused on motion (e.g., "Slow push in as character turns head", "Handheld tracking shot of...").
+    `,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: schema
+    }
+  });
+
+  const result = JSON.parse(response.text || "{}");
+  const map: Record<number, string> = {};
+  
+  if (result.prompts) {
+    result.prompts.forEach((p: any) => {
+      map[p.index] = p.videoPrompt;
+    });
+  }
+  
+  return map;
 };
 
 export const generateImage = async (
