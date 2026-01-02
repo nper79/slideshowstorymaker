@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Users, Map, RefreshCw, Wand2 } from 'lucide-react';
 import { Character, Setting, AspectRatio } from '../types';
@@ -28,7 +29,8 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {characters.map(char => (
             <div key={char.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 group hover:border-pink-500/50 transition-all">
-              <div className="aspect-square bg-slate-900 relative">
+              {/* Changed from aspect-square to aspect-[4/3] to fit the side-by-side prompt output */}
+              <div className="aspect-[4/3] bg-slate-900 relative">
                 {char.imageUrl ? (
                   <img src={char.imageUrl} alt={char.name} className="w-full h-full object-cover" />
                 ) : (

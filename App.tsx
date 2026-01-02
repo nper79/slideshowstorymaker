@@ -1,12 +1,13 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload, AlertCircle, CheckCircle, XCircle, Info } from 'lucide-react';
+import { Layout, Key, AlertTriangle, Upload, Download, Layers, Users, Clapperboard } from 'lucide-react';
 import StoryInput from './components/StoryInput';
 import AssetGallery from './components/AssetGallery';
 import Storyboard from './components/Storyboard';
 import { StoryData, ProcessingStatus, AspectRatio, ImageSize } from './types';
 import * as GeminiService from './services/geminiService';
 import * as StorageService from './services/storageService';
-import { cropGridCell } from './utils/imageUtils';
+import { splitCombinedKeyframes } from './utils/imageUtils';
 
 enum Tab {
   INPUT = 'input',
@@ -19,198 +20,100 @@ interface AIStudio {
   openSelectKey(): Promise<void>;
 }
 
-// --- TOAST SYSTEM ---
-interface Toast {
-  id: string;
-  type: 'success' | 'error' | 'info';
-  message: string;
-}
-
-const ToastContainer: React.FC<{ toasts: Toast[], removeToast: (id: string) => void }> = ({ toasts, removeToast }) => {
-  return (
-    <div className="fixed bottom-6 right-6 z-[10000] flex flex-col gap-3 pointer-events-none">
-      {toasts.map(toast => (
-        <div 
-          key={toast.id} 
-          className={`
-            pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border border-white/10 backdrop-blur-md animate-slide-in-right
-            ${toast.type === 'error' ? 'bg-red-500/90 text-white' : ''}
-            ${toast.type === 'success' ? 'bg-emerald-500/90 text-white' : ''}
-            ${toast.type === 'info' ? 'bg-slate-800/90 text-white' : ''}
-          `}
-        >
-          {toast.type === 'error' && <XCircle className="w-5 h-5 shrink-0" />}
-          {toast.type === 'success' && <CheckCircle className="w-5 h-5 shrink-0" />}
-          {toast.type === 'info' && <Info className="w-5 h-5 shrink-0" />}
-          <span className="text-sm font-medium">{toast.message}</span>
-          <button onClick={() => removeToast(toast.id)} className="ml-2 opacity-70 hover:opacity-100">
-             <XCircle className="w-4 h-4" />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-};
-
 export default function App() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INPUT);
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [storyData, setStoryData] = useState<StoryData | null>(null);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Voice selection state (default to 'Puck')
+  const [error, setError] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState('Puck');
-
-  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-      const id = Math.random().toString(36).substring(7);
-      setToasts(prev => [...prev, { id, type, message }]);
-      setTimeout(() => removeToast(id), 5000);
-  };
-
-  const removeToast = (id: string) => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  const handleError = (e: any, defaultMsg: string) => {
-      console.error(e);
-      const msg = e.toString();
-      if (msg.includes("429")) {
-          addToast("Rate Limit Exceeded. Please wait a moment before trying again.", "error");
-      } else if (msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
-          addToast("Permission Denied. Check your API Key billing status.", "error");
-          setHasApiKey(false);
-      } else if (msg.includes("400")) {
-          addToast("The AI request was invalid. Try shortening the text.", "error");
-      } else {
-          addToast(`${defaultMsg}: ${e.message || "Unknown error"}`, "error");
-      }
-  };
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // 1. Check API Key
     const checkKey = async () => {
       const aistudio = (window as any).aistudio as AIStudio | undefined;
-      if (aistudio) {
-        try {
-          const selected = await aistudio.hasSelectedApiKey();
-          if (selected) {
-            setHasApiKey(true);
-          }
-        } catch (e) {
-          console.error("Error checking API key:", e);
-        }
-      }
+      if (aistudio && (await aistudio.hasSelectedApiKey())) setHasApiKey(true);
     };
     checkKey();
-
-    // 2. Generic Cleanup for background artifacts
-    const cleanupBackground = () => {
-        const canvases = document.querySelectorAll('body > canvas');
-        canvases.forEach((c: any) => {
-            c.style.display = 'none';
-            if(c.parentNode) c.parentNode.removeChild(c);
-        });
-    };
-    cleanupBackground();
-    
-    const interval = setInterval(cleanupBackground, 500);
-    return () => clearInterval(interval);
-
   }, []);
 
   const handleSelectKey = async () => {
     const aistudio = (window as any).aistudio as AIStudio | undefined;
-    if (aistudio) {
-      try {
-        await aistudio.openSelectKey();
-        setHasApiKey(true);
-      } catch (e) {
-        console.error("Error selecting API key:", e);
-      }
-    }
+    if (aistudio) { await aistudio.openSelectKey(); setHasApiKey(true); }
   };
 
   const handleAnalyzeStory = async (text: string, style: string) => {
     setStatus(ProcessingStatus.ANALYZING);
-    addToast("Analyzing story structure...", "info");
+    setError(null);
     try {
       const data = await GeminiService.analyzeStoryText(text, style);
-      // Initialize new fields
-      const initializedSegments = data.segments.map(s => ({
-          ...s,
-          selectedGridIndices: [], // Start empty
-          generatedImageUrls: []
-      }));
-      
-      setStoryData({ ...data, segments: initializedSegments });
+      setStoryData(data);
       setStatus(ProcessingStatus.READY);
-      setActiveTab(Tab.ASSETS);
-      addToast("Story analyzed successfully!", "success");
-    } catch (error: any) {
+      setActiveTab(Tab.ASSETS); // Auto-navigate to assets after analysis
+    } catch (e: any) {
+      console.error(e);
       setStatus(ProcessingStatus.ERROR);
-      handleError(error, "Failed to analyze story");
+      setError("Analysis failed. Please try again.");
     }
   };
 
+  // --- ASSET GENERATION HANDLERS ---
+
   const handleGenerateCharacter = async (id: string) => {
     if (!storyData) return;
-    setStoryData(prev => prev ? ({
-        ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: true } : c)
-    }) : null);
-
+    setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: true } : c) }) : null);
     try {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
-      const prompt = `Character Sheet Concept Art. Full Body. Front View and Back View side-by-side. Solid White Background. High detail. Character Name: ${char.name}. Description: ${char.description}. Visual Notes: ${char.visualPrompt}.`;
       
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.PORTRAIT, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
+      // Prompt ajustado: Usa a descrição rica diretamente, mantendo apenas a estrutura técnica do side-by-side
+      const prompt = `Side by side split screen character design, 4:3 aspect ratio. Left side: Close-up portrait of ${char.name}, looking at camera, neutral expression. Right side: Full body shot of ${char.name}, neutral pose. Visual details: ${char.description}. Style: ${storyData.artStyle}. High quality, photorealistic, NO text.`;
 
-      setStoryData(prev => prev ? ({
-        ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c)
-      }) : null);
-      addToast(`Generated character: ${char.name}`, "success");
+      const imageUrl = await GeminiService.generateImage(
+        prompt, 
+        AspectRatio.STANDARD, // 4:3 para acomodar lado a lado
+        ImageSize.K1
+      );
+      setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c) }) : null);
     } catch (e) {
-      handleError(e, "Character generation failed");
       setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: false } : c) }) : null);
     }
   };
 
   const handleGenerateSetting = async (id: string) => {
     if (!storyData) return;
-    setStoryData(prev => prev ? ({
-        ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: true } : s)
-    }) : null);
-
+    setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: true } : s) }) : null);
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      const prompt = `Aerial view. Architecture view of location. Top-down plan. Setting: ${setting.name}. Description: ${setting.description}. ${setting.visualPrompt}.`;
+      // Removido "Environment Concept Art" para usar a descrição detalhada diretamente
+      const prompt = `${setting.name}: ${setting.description}. Style: ${storyData.artStyle}`;
       
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.LANDSCAPE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
-
-      setStoryData(prev => prev ? ({
-        ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s)
-      }) : null);
-      addToast(`Generated setting: ${setting.name}`, "success");
+      const imageUrl = await GeminiService.generateImage(
+        prompt, 
+        AspectRatio.LANDSCAPE, 
+        ImageSize.K1
+      );
+      setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s) }) : null);
     } catch (e) {
-      handleError(e, "Setting generation failed");
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
     }
   };
 
-  const handleGenerateScene = async (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => {
-    if (!storyData) return;
+  // --- STORYBOARD HANDLERS ---
 
+  const handleGenerateKeyframes = async (segmentId: string) => {
+    if (!storyData) return;
     setStoryData(prev => prev ? ({
-      ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s)
+      ...prev,
+      segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGeneratingKeyframes: true } : s)
     }) : null);
 
     try {
       const segment = storyData.segments.find(s => s.id === segmentId);
-      if (!segment) throw new Error("Segment not found");
-
+      if (!segment) return;
+      
+      // Collect reference images from characters/settings involved in this segment
       const refImages: string[] = [];
       segment.characterIds.forEach(charId => {
         const char = storyData.characters.find(c => c.id === charId);
@@ -218,216 +121,202 @@ export default function App() {
       });
       const setting = storyData.settings.find(s => s.id === segment.settingId);
       if (setting?.imageUrl) refImages.push(setting.imageUrl);
+
+      // Geramos a imagem 4:3 (STANDARD) que contém ambos os frames
+      const combinedUrl = await GeminiService.generateImage(segment.combinedKeyframePrompt, AspectRatio.STANDARD, ImageSize.K1, refImages);
       
-      const prompt = `
-        Time of Day: ${segment.timeOfDay}. 
-        Key Visual Action: ${segment.keyVisualAction}.
-        Scene Details: ${segment.scenePrompt}
-        Setting: ${setting?.name || 'Unknown'}, in the ${segment.quadrant}.
-        Characters present: ${segment.characterIds.map(id => storyData.characters.find(c => c.id === id)?.name).join(', ')}.
-      `;
-
-      // GENERATE A 3x3 GRID
-      const masterGridUrl = await GeminiService.generateImage(
-        prompt, 
-        options.aspectRatio, 
-        options.imageSize, 
-        refImages, 
-        storyData.visualStyleGuide, 
-        storyData.cinematicDNA, 
-        true, 
-        segment.gridVariations 
-      );
-
-      // Default to center image (index 4)
-      const defaultIndex = 4;
-      const croppedImage = await cropGridCell(masterGridUrl, defaultIndex);
-
+      // Cortamos a imagem em Start (Left) e End (Right)
+      const { start, end } = await splitCombinedKeyframes(combinedUrl);
+      
       setStoryData(prev => prev ? ({
         ...prev,
         segments: prev.segments.map(s => s.id === segmentId ? { 
-            ...s, 
-            masterGridImageUrl: masterGridUrl, 
-            selectedGridIndices: [defaultIndex], // Initialize as array
-            generatedImageUrls: [croppedImage], // Initialize as array
-            isGenerating: false 
+          ...s, 
+          combinedKeyframeUrl: combinedUrl,
+          startFrameUrl: start,
+          endFrameUrl: end,
+          isGeneratingKeyframes: false 
         } : s)
       }) : null);
-      addToast("Scene grid generated!", "success");
-
-    } catch (e: any) {
-       handleError(e, "Scene generation failed");
-       setStoryData(prev => prev ? ({
-          ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s)
-       }) : null);
+    } catch (e) {
+      setStoryData(prev => prev ? ({
+        ...prev,
+        segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGeneratingKeyframes: false } : s)
+      }) : null);
     }
   };
 
-  const handleSelectOption = async (segmentId: string, optionIndex: number) => {
+  const handleGenerateVideo = async (segmentId: string) => {
     if (!storyData) return;
-    
     const segment = storyData.segments.find(s => s.id === segmentId);
-    if (!segment || !segment.masterGridImageUrl) return;
+    if (!segment || !segment.startFrameUrl || !segment.endFrameUrl) return;
+
+    setStoryData(prev => prev ? ({
+      ...prev,
+      segments: prev.segments.map(s => s.id === segmentId ? { ...s, isVideoGenerating: true } : s)
+    }) : null);
 
     try {
-        let newIndices = [...(segment.selectedGridIndices || [])];
-        if (newIndices.includes(optionIndex)) {
-            newIndices = newIndices.filter(i => i !== optionIndex);
-        } else {
-            newIndices.push(optionIndex);
-        }
-
-        const newImages = await Promise.all(
-            newIndices.map(async (idx) => {
-                return await cropGridCell(segment.masterGridImageUrl!, idx);
-            })
-        );
-
-        setStoryData(prev => {
-            if (!prev) return null;
-            return {
-                ...prev,
-                segments: prev.segments.map(s => s.id === segmentId ? {
-                    ...s,
-                    selectedGridIndices: newIndices,
-                    generatedImageUrls: newImages
-                } : s)
-            };
-        });
+      const prompt = `Smooth cinematic transition from the first frame to the second frame. Action: ${segment.text}. Style: ${storyData.artStyle}. High quality animation.`;
+      const { url, videoObject } = await GeminiService.generateVideoBetweenFrames(prompt, segment.startFrameUrl, segment.endFrameUrl);
+      
+      setStoryData(prev => prev ? ({
+        ...prev,
+        segments: prev.segments.map(s => s.id === segmentId ? { ...s, videoUrl: url, videoObject, isVideoGenerating: false } : s)
+      }) : null);
     } catch (e) {
-        console.error("Failed to crop grid cell", e);
-        addToast("Failed to update selection", "error");
+      setStoryData(prev => prev ? ({
+        ...prev,
+        segments: prev.segments.map(s => s.id === segmentId ? { ...s, isVideoGenerating: false } : s)
+      }) : null);
     }
   };
 
-  const handleEditImage = async (segmentId: string, instruction: string) => {
-      if (!storyData) return;
-      const segment = storyData.segments.find(s => s.id === segmentId);
-      if (!segment || !segment.generatedImageUrls || segment.generatedImageUrls.length === 0) return;
-      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
-      try {
-          const originalUrl = segment.generatedImageUrls[0];
-          const newImageUrl = await GeminiService.editImage(originalUrl, instruction);
-          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, generatedImageUrls: [newImageUrl, ...s.generatedImageUrls.slice(1)], isGenerating: false } : s) }) : null);
-          addToast("Image edited successfully", "success");
-      } catch(e) {
-          handleError(e, "Image edit failed");
-          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
-      }
+  const handleUpdateDuration = (segmentId: string, duration: number) => {
+     setStoryData(prev => prev ? ({
+      ...prev,
+      segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioDuration: duration } : s)
+    }) : null);
   };
 
-  const handleDeleteAudio = (segmentId: string) => {
-     if (!storyData) return;
-     setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: undefined, audioDuration: undefined } : s) }) : null);
-     addToast("Audio deleted", "info");
-  };
-
+  // --- AUDIO HANDLER ---
   const handleGenerateAndPlayAudio = async (segmentId: string, text: string): Promise<void> => {
       const segment = storyData?.segments.find(s => s.id === segmentId);
       if (segment?.audioUrl) {
-          try {
-             const audio = new Audio(segment.audioUrl);
-             await audio.play();
-          } catch(err) { handleError(err, "Playback failed"); }
+          const audio = new Audio(segment.audioUrl);
+          await audio.play();
           return;
       }
       setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
-      addToast("Generating audio...", "info");
       try {
           const audioBuffer = await GeminiService.generateSpeech(text, selectedVoice);
-          if (!audioBuffer || audioBuffer.byteLength === 0) throw new Error("Empty audio buffer");
           const blob = GeminiService.createWavBlob(audioBuffer);
           const url = URL.createObjectURL(blob);
           const duration = audioBuffer.byteLength / 48000;
-          setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: url, audioDuration: duration, isGenerating: false } : s) }) : null);
-          addToast("Audio generated!", "success");
-          try { const audio = new Audio(url); await audio.play(); } catch(err) { addToast("Audio ready. Click play.", "info"); }
+          
+          setStoryData(prev => prev ? ({
+              ...prev, 
+              segments: prev.segments.map(s => s.id === segmentId ? { ...s, audioUrl: url, audioDuration: duration, isGenerating: false } : s)
+          }) : null);
+          
+          await GeminiService.playAudio(audioBuffer);
       } catch (e) {
-          handleError(e, "Audio generation failed");
           setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
       }
   };
 
-  const handleStopAudio = () => { GeminiService.stopAudio(); };
+  // --- PROJECT MANAGEMENT ---
 
-  const handleExport = async () => {
-    if (!storyData) return;
-    try { await StorageService.exportProject(storyData); addToast("Project exported!", "success"); } catch (e) { handleError(e, "Export failed"); }
-  };
-
-  const handleImportClick = () => { fileInputRef.current?.click(); };
-
+  const handleExport = async () => { if (storyData) await StorageService.exportProject(storyData); };
+  const handleImportClick = () => fileInputRef.current?.click();
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    addToast("Importing project...", "info");
     try {
-      const { data, warnings } = await StorageService.importProject(file);
+      const { data } = await StorageService.importProject(file);
       setStoryData(data);
       setStatus(ProcessingStatus.READY);
       setActiveTab(Tab.STORYBOARD);
-      if (warnings && warnings.length > 0) warnings.forEach(w => addToast(w, "info"));
-      else addToast("Imported successfully!", "success");
-    } catch (e) { handleError(e, "Import failed"); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
+    } catch (e) { alert("Import failed."); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
-  if (!hasApiKey) {
-    return (
-      <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center p-4 relative z-50">
-        <ToastContainer toasts={toasts} removeToast={removeToast} />
-        <div className="max-w-md w-full bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-2xl text-center">
-          <div className="w-16 h-16 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Key className="w-8 h-8 text-indigo-400" />
-          </div>
-          <h1 className="text-3xl font-bold text-white mb-4">Access Required</h1>
-          <p className="text-slate-400 mb-8">StoryBoard AI uses advanced Gemini models. Please select a <strong>paid API key</strong>.</p>
-          <button onClick={handleSelectKey} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg mb-6">Select API Key</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200 relative z-50">
-      <ToastContainer toasts={toasts} removeToast={removeToast} />
-      <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-2">
-              <Layout className="w-8 h-8 text-indigo-500" />
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">StoryBoard AI</span>
-            </div>
-            <div className="flex items-center gap-4">
-               <div className="flex gap-2">
-                 <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
-                 <button onClick={handleImportClick} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm border border-slate-700">
-                   <Upload className="w-4 h-4" /> 
-                   <span className="hidden sm:inline">Import</span>
-                 </button>
-                 {storyData && (
-                   <button onClick={handleExport} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm border border-slate-700">
-                     <Download className="w-4 h-4" /> 
-                     <span className="hidden sm:inline">Export</span>
-                   </button>
-                 )}
-               </div>
-              {storyData && (
-                <div className="flex bg-slate-800 rounded-lg p-1">
-                   <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>Story</button>
-                   <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>Assets</button>
-                   <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>Storyboard</button>
-                </div>
-              )}
-            </div>
+    <div className="min-h-screen bg-[#0f172a] text-slate-200">
+      {!hasApiKey ? (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-slate-800 rounded-3xl p-10 border border-slate-700 text-center shadow-2xl">
+            <Key className="w-16 h-16 text-indigo-400 mx-auto mb-6" />
+            <h1 className="text-3xl font-bold text-white mb-4">Cinematic Engine</h1>
+            <p className="text-slate-400 mb-8 text-sm">Select a paid API key to begin generating AI-powered cinematic storyboards.</p>
+            <button onClick={handleSelectKey} className="w-full bg-indigo-600 hover:bg-indigo-500 py-4 rounded-xl font-bold transition-all">Select API Key</button>
           </div>
         </div>
-      </nav>
+      ) : (
+        <>
+          <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur h-16 flex items-center px-4 md:px-8 justify-between">
+              <div className="flex items-center gap-3">
+                  <Layout className="w-8 h-8 text-indigo-500" />
+                  <span className="text-xl font-black tracking-tighter uppercase hidden md:block">Cinematic Board</span>
+                  <span className="text-xl font-black tracking-tighter uppercase md:hidden">StoryBoard</span>
+              </div>
+              
+              <div className="flex gap-4 items-center">
+                   {/* File Controls */}
+                   <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
+                   <button onClick={handleImportClick} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 text-slate-300 transition-colors" title="Import Project">
+                      <Upload className="w-4 h-4" />
+                   </button>
+                   {storyData && (
+                     <button onClick={handleExport} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 text-slate-300 transition-colors" title="Export Project">
+                        <Download className="w-4 h-4" />
+                     </button>
+                   )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === Tab.INPUT && <div className="animate-fade-in"><StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} /></div>}
-        {activeTab === Tab.ASSETS && storyData && <div className="animate-fade-in"><AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} /></div>}
-        {activeTab === Tab.STORYBOARD && storyData && <div className="animate-fade-in"><Storyboard segments={storyData.segments} characters={storyData.characters} settings={storyData.settings} onGenerateScene={handleGenerateScene} onEditImage={handleEditImage} onPlayAudio={handleGenerateAndPlayAudio} onStopAudio={handleStopAudio} onSelectOption={handleSelectOption} onDeleteAudio={handleDeleteAudio} /></div>}
-      </main>
+                   {/* Main Navigation */}
+                   {storyData && (
+                    <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-700">
+                      <button 
+                        onClick={() => setActiveTab(Tab.INPUT)} 
+                        className={`px-3 md:px-4 py-1.5 rounded-lg text-xs md:text-sm font-bold flex items-center gap-2 transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        <Layers className="w-3 h-3 md:w-4 md:h-4" /> <span className="hidden md:inline">Story</span>
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab(Tab.ASSETS)} 
+                        className={`px-3 md:px-4 py-1.5 rounded-lg text-xs md:text-sm font-bold flex items-center gap-2 transition-all ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        <Users className="w-3 h-3 md:w-4 md:h-4" /> <span className="hidden md:inline">Assets</span>
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab(Tab.STORYBOARD)} 
+                        className={`px-3 md:px-4 py-1.5 rounded-lg text-xs md:text-sm font-bold flex items-center gap-2 transition-all ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        <Clapperboard className="w-3 h-3 md:w-4 md:h-4" /> <span className="hidden md:inline">Board</span>
+                      </button>
+                    </div>
+                  )}
+              </div>
+          </nav>
+          
+          <main className="max-w-7xl mx-auto px-4 py-8">
+            {error && (
+              <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-center gap-4 text-red-200">
+                <AlertTriangle className="w-6 h-6 text-red-500" />
+                <p>{error}</p>
+              </div>
+            )}
+
+            {activeTab === Tab.INPUT && (
+              <StoryInput 
+                onAnalyze={handleAnalyzeStory} 
+                status={status} 
+                selectedVoice={selectedVoice} 
+                onVoiceChange={setSelectedVoice} 
+              />
+            )}
+
+            {activeTab === Tab.ASSETS && storyData && (
+              <AssetGallery 
+                characters={storyData.characters} 
+                settings={storyData.settings} 
+                onGenerateCharacter={handleGenerateCharacter} 
+                onGenerateSetting={handleGenerateSetting} 
+              />
+            )}
+
+            {activeTab === Tab.STORYBOARD && storyData && (
+              <Storyboard 
+                segments={storyData.segments} 
+                onGenerateKeyframes={handleGenerateKeyframes}
+                onGenerateVideo={handleGenerateVideo}
+                onUpdateDuration={handleUpdateDuration}
+                onPlayAudio={handleGenerateAndPlayAudio}
+                onStopAudio={GeminiService.stopAudio}
+              />
+            )}
+          </main>
+        </>
+      )}
     </div>
   );
 }
