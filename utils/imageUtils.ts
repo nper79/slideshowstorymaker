@@ -1,7 +1,7 @@
 
 /**
- * Corta uma imagem quadrada (1x1) em dois frames verticais (9:16).
- * O lado esquerdo é o 'Start' e o lado direito é o 'End'.
+ * Splits a Standard 4:3 input image into two Vertical 9:16 frames.
+ * The function intelligently crops the center of the left half and the center of the right half.
  */
 export const splitCombinedKeyframes = (base64Image: string): Promise<{ start: string, end: string }> => {
     return new Promise((resolve, reject) => {
@@ -11,31 +11,42 @@ export const splitCombinedKeyframes = (base64Image: string): Promise<{ start: st
         const ctx = canvas.getContext('2d');
         if (!ctx) return reject(new Error("Canvas context failed"));
 
-        // Definimos o formato 9:16 baseado na altura da imagem original
-        const targetHeight = img.height;
+        const imgWidth = img.width;
+        const imgHeight = img.height;
+
+        // Target output dimensions (9:16 vertical)
+        // We set the target height to the full image height for max resolution.
+        const targetHeight = imgHeight;
         const targetWidth = (9 / 16) * targetHeight;
 
         const crop = (isRight: boolean): string => {
           canvas.width = targetWidth;
           canvas.height = targetHeight;
           
-          // Calculamos o centro de cada metade
-          const halfWidth = img.width / 2;
-          const centerX = isRight ? (img.width * 0.75) : (img.width * 0.25);
-          const sx = centerX - (targetWidth / 2);
+          // Logic: The original image is treated as two halves.
+          // Left half center = width * 0.25
+          // Right half center = width * 0.75
+          const centerX = isRight ? (imgWidth * 0.75) : (imgWidth * 0.25);
+          
+          // Calculate start X (Left edge of the crop box)
+          const startX = centerX - (targetWidth / 2);
+
+          // Bound checking (clipping safety)
+          // Ensure we don't try to draw from negative X or past the image width
+          const safeStartX = Math.max(0, Math.min(startX, imgWidth - targetWidth));
 
           ctx.clearRect(0, 0, targetWidth, targetHeight);
           ctx.drawImage(
             img,
-            sx, 0, targetWidth, targetHeight,
-            0, 0, targetWidth, targetHeight
+            safeStartX, 0, targetWidth, targetHeight, // Source
+            0, 0, targetWidth, targetHeight           // Destination
           );
           return canvas.toDataURL('image/png');
         };
 
         resolve({
-          start: crop(false),
-          end: crop(true)
+          start: crop(false), // Left side (Zoom/Close-up)
+          end: crop(true)     // Right side (Full Body/Wide)
         });
       };
       img.onerror = reject;
@@ -65,4 +76,4 @@ export const cropGridCell = (base64Image: string, index: number): Promise<string
       img.onerror = (e) => reject(e);
       img.src = base64Image;
     });
-  };
+};

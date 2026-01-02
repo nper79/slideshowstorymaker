@@ -64,7 +64,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
             combinedKeyframePrompt: { 
               type: Type.STRING, 
-              description: "A highly detailed cinematic prompt for a 'Side by side' 4:3 image. MUST follow structure: 'Side by side shot. Left: [Detailed Close-up description]. Right: [Detailed Wide-shot description]. [Lighting/Atmosphere/Lens details]'. Use terminology like 'volumetric lighting', '85mm lens', 'bokeh', 'subsurface scattering'." 
+              description: "Prompt for a 4:3 image containing TWO distinct panels side-by-side. Structure: 'SPLIT SCREEN. LEFT PANEL (Zoom In): [Extreme Close-up of Character Face, Expression]. RIGHT PANEL (Wide Shot): [Full Body of SAME Character, Action].'. CRITICAL: You MUST explicitly COPY AND PASTE the exact clothing description from the Character Profile into both the Left and Right descriptions to ensure they look identical." 
             }
           },
           required: ["id", "text", "type", "settingId", "characterIds", "combinedKeyframePrompt"]
@@ -79,7 +79,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             name: { type: Type.STRING },
             description: { 
                 type: Type.STRING,
-                description: "Extremely detailed visual description for an AI image generator. Include: Age, Ethinicity, Skin Texture (pores, wrinkles, scars), Eye details, Specific Clothing fabrics (leather, silk, tattered cotton), Accessories, Body Language. Do not summarize personality, describe APPEARANCE." 
+                description: "THE HOLY GRAIL OF CONSISTENCY. You MUST define a specific 'COSTUME' for this character that they wear throughout the entire story. Example: 'Wearing a dirty red hoodie, torn blue jeans, and combat boots'. DO NOT say 'clothes change'. Keep it static." 
             }
           },
           required: ["id", "name", "description"]
@@ -94,7 +94,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             name: { type: Type.STRING },
             description: { 
                 type: Type.STRING,
-                description: "Extremely detailed environmental description. Include: Lighting sources (neon, candlelight, harsh sunlight), Atmosphere (dust motes, fog, rain), Textures (peeling paint, polished chrome, mossy stone), Time of Day, and Architectural style. Make it visceral." 
+                description: "Physical description of the location layout, architecture, and lighting." 
             }
           },
           required: ["id", "name", "description"]
@@ -105,34 +105,34 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   };
 
   const systemInstruction = `
-  You are a world-class Cinematographer and Concept Artist (like Roger Deakins meeting Syd Mead). 
-  Your goal is to break down a story into visual assets for a high-end film production.
+  You are a Director of Photography and Video Editor AI.
   
-  CRITICAL RULES FOR DESCRIPTIONS:
-  1. **NO GENERIC ADJECTIVES**: Never use words like "scary", "beautiful", "sad". Instead describe the visual evidence: "shadows stretching like claws", "golden hour light hitting dust particles", "tears welling in bloodshot eyes".
-  2. **MATERIALITY & TEXTURE**: Always specify materials. Not "a jacket", but "a distressed brown leather aviator jacket with brass zippers". Not "a wall", but "damp concrete walls with peeling industrial green paint".
-  3. **LIGHTING IS KEY**: Every description must define the light. "Rim lighting", "Chiaroscuro", "Diffused softbox light", "Harsh fluorescent flicker".
-  4. **CAMERA LANGUAGE**: Use terms like "Depth of field", "Bokeh", "Wide angle", "Telephoto compression".
+  RULE 1: ASSET FILTERING & CONSISTENCY
+  - **Characters:** Only create profiles for people appearing >1 time. DEFINE A STATIC COSTUME (e.g., "White shirt, blue tie"). This costume MUST NOT CHANGE.
+  - **Settings:** Only create profiles for locations appearing >1 time.
+  - **Reference:** In 'combinedKeyframePrompt', REPEAT the costume description VERBATIM every time.
 
-  TASK:
-  1. Analyze the story.
-  2. Extract key Characters. Describe them as if writing a prompt for Midjourney/Flux.
-  3. Extract key Settings. Describe them with intense atmosphere and detail.
-  4. Break story into segments (beats). 
-  5. For each segment, write a 'combinedKeyframePrompt' that creates a SPLIT SCREEN (Side-by-Side) composition.
-     - LEFT SIDE: Intense Close-up (Face/Details).
-     - RIGHT SIDE: Wide/Full Shot (Action/Environment).
-     - Ensure the visual narrative evolves from left to right.
+  RULE 2: HYPER-SEGMENTATION (CRITICAL FIX)
+  - **DO NOT SUMMARIZE.**
+  - **DO NOT GROUP PARAGRAPHS.**
+  - **ACTION:** Slice the story into tiny beats of **MAXIMUM 2-3 SENTENCES** each.
+  - If a paragraph has 6 sentences, split it into 3 separate segments.
+  - The output should contain MANY segments (e.g., for a 500-word story, expect 20+ segments).
+  - Every single sentence of the input text must be preserved across the segments.
+
+  RULE 3: SCENE VISUALIZATION
+  - Ideally, every 10-15 seconds of reading time creates a new visual beat.
+  - Split long dialogue exchanges into separate beats (Speaker A -> Segment 1, Speaker B -> Segment 2).
   `;
 
   const response = await ai.models.generateContent({
     model: MODEL_TEXT_ANALYSIS,
-    contents: `ANALYZE STORY:\n${storyText}\n\nDESIRED ART STYLE: ${artStyle}`,
+    contents: `FULL STORY:\n${storyText}\n\nSTYLE: ${artStyle}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: schema,
       systemInstruction: systemInstruction,
-      thinkingConfig: { thinkingBudget: 16000 } // Increased budget for deeper visual creativity
+      thinkingConfig: { thinkingBudget: 16000 }
     }
   });
 
@@ -170,7 +170,7 @@ export const generateVideoBetweenFrames = async (prompt: string, startFrameB64: 
     config: {
       numberOfVideos: 1,
       resolution: '720p',
-      aspectRatio: '9:16',
+      aspectRatio: '9:16', // STRICTLY 9:16 VERTICAL
       lastFrame: {
         imageBytes: endFrameB64.split(',')[1] || endFrameB64,
         mimeType: 'image/png'

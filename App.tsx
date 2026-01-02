@@ -49,7 +49,7 @@ export default function App() {
       const data = await GeminiService.analyzeStoryText(text, style);
       setStoryData(data);
       setStatus(ProcessingStatus.READY);
-      setActiveTab(Tab.ASSETS); // Auto-navigate to assets after analysis
+      setActiveTab(Tab.ASSETS); 
     } catch (e: any) {
       console.error(e);
       setStatus(ProcessingStatus.ERROR);
@@ -66,12 +66,18 @@ export default function App() {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
       
-      // Prompt ajustado: Usa a descrição rica diretamente, mantendo apenas a estrutura técnica do side-by-side
-      const prompt = `Side by side split screen character design, 4:3 aspect ratio. Left side: Close-up portrait of ${char.name}, looking at camera, neutral expression. Right side: Full body shot of ${char.name}, neutral pose. Visual details: ${char.description}. Style: ${storyData.artStyle}. High quality, photorealistic, NO text.`;
+      // FORCED CONSISTENCY: Inject the exact description into both panels
+      const prompt = `
+        Side by side split screen character design sheet, 4:3 aspect ratio.
+        STRICT CLOTHING RULE: Character MUST wear exactly: ${char.description} in both panels.
+        Left side: Close-up portrait of ${char.name}.
+        Right side: Full body shot of ${char.name}, same clothes.
+        Style: ${storyData.artStyle}. High quality, photorealistic, NO text.
+      `;
 
       const imageUrl = await GeminiService.generateImage(
         prompt, 
-        AspectRatio.STANDARD, // 4:3 para acomodar lado a lado
+        AspectRatio.STANDARD,
         ImageSize.K1
       );
       setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl, isGenerating: false } : c) }) : null);
@@ -86,8 +92,14 @@ export default function App() {
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      // Removido "Environment Concept Art" para usar a descrição detalhada diretamente
-      const prompt = `${setting.name}: ${setting.description}. Style: ${storyData.artStyle}`;
+      
+      // FORCED TOP-DOWN AERIAL VIEW
+      const prompt = `
+        Top-down Aerial View / Architectural Blueprint Plan of: ${setting.name}.
+        Details: ${setting.description}. 
+        Perspective: Strictly top-down drone view, map style.
+        Style: ${storyData.artStyle}.
+      `;
       
       const imageUrl = await GeminiService.generateImage(
         prompt, 
@@ -113,7 +125,6 @@ export default function App() {
       const segment = storyData.segments.find(s => s.id === segmentId);
       if (!segment) return;
       
-      // Collect reference images from characters/settings involved in this segment
       const refImages: string[] = [];
       segment.characterIds.forEach(charId => {
         const char = storyData.characters.find(c => c.id === charId);
@@ -122,10 +133,8 @@ export default function App() {
       const setting = storyData.settings.find(s => s.id === segment.settingId);
       if (setting?.imageUrl) refImages.push(setting.imageUrl);
 
-      // Geramos a imagem 4:3 (STANDARD) que contém ambos os frames
       const combinedUrl = await GeminiService.generateImage(segment.combinedKeyframePrompt, AspectRatio.STANDARD, ImageSize.K1, refImages);
       
-      // Cortamos a imagem em Start (Left) e End (Right)
       const { start, end } = await splitCombinedKeyframes(combinedUrl);
       
       setStoryData(prev => prev ? ({
@@ -157,7 +166,7 @@ export default function App() {
     }) : null);
 
     try {
-      const prompt = `Smooth cinematic transition from the first frame to the second frame. Action: ${segment.text}. Style: ${storyData.artStyle}. High quality animation.`;
+      const prompt = `Cinematic video. Action: ${segment.text}. Style: ${storyData.artStyle}. Consistent character and lighting.`;
       const { url, videoObject } = await GeminiService.generateVideoBetweenFrames(prompt, segment.startFrameUrl, segment.endFrameUrl);
       
       setStoryData(prev => prev ? ({
@@ -179,7 +188,6 @@ export default function App() {
     }) : null);
   };
 
-  // --- AUDIO HANDLER ---
   const handleGenerateAndPlayAudio = async (segmentId: string, text: string): Promise<void> => {
       const segment = storyData?.segments.find(s => s.id === segmentId);
       if (segment?.audioUrl) {
@@ -204,8 +212,6 @@ export default function App() {
           setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
       }
   };
-
-  // --- PROJECT MANAGEMENT ---
 
   const handleExport = async () => { if (storyData) await StorageService.exportProject(storyData); };
   const handleImportClick = () => fileInputRef.current?.click();
@@ -241,7 +247,6 @@ export default function App() {
               </div>
               
               <div className="flex gap-4 items-center">
-                   {/* File Controls */}
                    <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
                    <button onClick={handleImportClick} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 text-slate-300 transition-colors" title="Import Project">
                       <Upload className="w-4 h-4" />
@@ -252,7 +257,6 @@ export default function App() {
                      </button>
                    )}
 
-                   {/* Main Navigation */}
                    {storyData && (
                     <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-700">
                       <button 
