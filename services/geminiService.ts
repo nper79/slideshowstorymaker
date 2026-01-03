@@ -93,7 +93,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             gridVariations: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: "A list of exactly 4 distinct cinematic variations (angles, framings) for this scene to generate a 2x2 grid."
+              description: "A list of exactly 4 chronological narrative beats. 1st string = Start of action, 4th string = End of action. Used to generate a 4-panel manga sequence."
             }
           },
           required: ["id", "text", "type", "settingId", "characterIds", "scenePrompt", "gridVariations"]
@@ -108,15 +108,21 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   
   Your goal is to break the story into small segments (3-4 sentences max) and plan the visual assets.
   
-  CRITICAL: For each segment, you must act as a Director and plan EXACTLY 4 distinct camera shots (Grid Variations) that capture the essence of that specific moment.
+  CRITICAL: For each segment, you must act as a Director and breakdown the action into a sequence of 4 distinct chronological beats (Manga Panels).
   
-  For 'gridVariations', provide exactly 4 strings describing different angles, for example:
-  1. Wide establishing shot
-  2. Over-the-shoulder shot of character A
-  3. Extreme close-up on eyes
-  4. Low angle looking up (hero shot)
+  For 'gridVariations', provide exactly 4 strings describing the progression of events in that segment:
+  1. Panel 1 (Top-Left): The beginning of the action.
+  2. Panel 2 (Top-Right): The reaction or development.
+  3. Panel 3 (Bottom-Left): The conflict or climax of this small segment.
+  4. Panel 4 (Bottom-Right): The resolution or transition to the next segment.
   
-  Ensure the variations match the emotional tone of the text segment.
+  Example if text is "I woke up late and ran to the alley":
+  1. Close up on alarm clock showing late time.
+  2. Character jumping out of bed in panic.
+  3. Character running down the busy street.
+  4. Character entering the dark alleyway.
+  
+  Ensure the visual descriptions are vivid and include camera angles.
   `;
 
   const response = await ai.models.generateContent({
@@ -156,15 +162,17 @@ export const generateImage = async (
   
   if (useGridMode && gridVariations) {
     promptParts.push(`
-STRICT LAYOUT: Create a 2x2 Grid (Contact Sheet) containing exactly 4 distinct panels.
+STRICT LAYOUT: Create a 2x2 Grid (Manga Page) containing exactly 4 distinct panels.
 - Structure: 2 columns by 2 rows.
 - Composition: The entire final image must be a tall, vertical orientation (9:16 aspect ratio) containing the grid.
-- Geometry: All 4 panels must be equal size. No borders, frames, or gutters between panels. Edge-to-edge.
-- FORBIDDEN: Do NOT create a vertical strip (1 column x 4 rows) or horizontal strip (4 columns x 1 row). It MUST be 2x2.
-- Content: The 4 panels must correspond to these 4 descriptions in order (reading left-to-right, top-to-bottom):
-${gridVariations.map((v, i) => `  ${i+1}. ${v}`).join('\n')}
+- STYLE CONSTRAINT: NO BORDERS. NO FRAMES. NO GUTTERS. The images should touch each other directly or merge seamlessly.
+- SEQUENTIAL NARRATIVE (Left-to-Right, Top-to-Bottom):
+  1. Top-Left Panel: ${gridVariations[0]}
+  2. Top-Right Panel: ${gridVariations[1]}
+  3. Bottom-Left Panel: ${gridVariations[2]}
+  4. Bottom-Right Panel: ${gridVariations[3]}
 
-- Consistency: Ensure characters and environment look consistent across all 4 panels.
+- Consistency: Ensure characters and environment look consistent across all 4 panels as they tell a continuous story.
     `);
   }
 

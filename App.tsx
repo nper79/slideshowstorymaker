@@ -94,17 +94,25 @@ export default function App() {
   const handleGenerateCharacter = async (id: string) => {
     if (!storyData) return;
     setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: true } : c) }) : null);
-    addToast("Generating side-by-side character sheet...", "info");
+    addToast("Generating character sheet...", "info");
     try {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
       
-      // RESTORED: Specific side-by-side prompt logic
-      const prompt = `Side by side photo of a closeup face, and full body character design, of ${char.name}, ${char.description}. On the left, a tight closeup of their face and shoulders. On the right, their whole form is framed. They are wearing a detailed outfit consistent with: ${char.description}. On a flat dark slate background, captured in photography style with edge lighting for depth to separate them from the darkness, 8k, photorealistic, consistency in clothing across both panels.`;
+      // Updated Prompt for Character Sheet layout
+      const prompt = `Character Sheet for ${char.name}. 
+      LAYOUT: A horizontal design sheet featuring 4 distinct views of the character:
+      1. Front View (Full Body)
+      2. Side View (Profile)
+      3. Back View
+      4. Detailed Face Close-up
+      
+      Character Details: ${char.description}.
+      Style: ${storyData.visualStyleGuide}, clean background, consistent character design, high quality concept art.`;
 
       const imageUrl = await GeminiService.generateImage(
           prompt, 
-          AspectRatio.LANDSCAPE, // Using Landscape for side-by-side
+          AspectRatio.WIDE, // 16:9 for the wide sheet look
           ImageSize.K1, 
           [], 
           storyData.visualStyleGuide, 
@@ -125,7 +133,7 @@ export default function App() {
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      const imageUrl = await GeminiService.generateImage(`Environment: ${setting.name}. ${setting.description}`, AspectRatio.LANDSCAPE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
+      const imageUrl = await GeminiService.generateImage(`Environment: ${setting.name}. ${setting.description}`, AspectRatio.WIDE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s) }) : null);
     } catch (e) {
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
@@ -146,7 +154,7 @@ export default function App() {
       const setting = storyData.settings.find(s => s.id === segment.settingId);
       if (setting?.imageUrl) refImages.push(setting.imageUrl);
       
-      const masterGridUrl = await GeminiService.generateImage(segment.scenePrompt, AspectRatio.MOBILE, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA, true, segment.gridVariations);
+      const masterGridUrl = await GeminiService.generateImage(segment.scenePrompt, options.aspectRatio, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA, true, segment.gridVariations);
       const defaultIndex = 0;
       const croppedImage = await cropGridCell(masterGridUrl, defaultIndex);
       setStoryData(prev => prev ? ({
@@ -173,7 +181,11 @@ export default function App() {
         let newIndices = [...(segment.selectedGridIndices || [])];
         if (newIndices.includes(optionIndex)) newIndices = newIndices.filter(i => i !== optionIndex);
         else newIndices.push(optionIndex);
+        
+        // If unselecting results in empty, keep it empty or handle logic elsewhere.
+        // If selecting, crop new ones.
         const newImages = await Promise.all(newIndices.map(async (idx) => await cropGridCell(segment.masterGridImageUrl!, idx)));
+        
         setStoryData(prev => prev ? ({
             ...prev,
             segments: prev.segments.map(s => s.id === segmentId ? { ...s, selectedGridIndices: newIndices, generatedImageUrls: newImages } : s)
@@ -265,13 +277,13 @@ export default function App() {
                {storyData && (
                 <div className="flex bg-slate-800 rounded p-1">
                   <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.INPUT ? 'bg-indigo-600' : ''}`}>Story</button>
-                  <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.ASSETS ? 'bg-indigo-600' : ''}`}>Assets</button>
-                  <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600' : ''}`}>Storyboard</button>
+                  <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.ASSETS ? 'bg-indigo-600' : ''}`}>Characters</button>
+                  <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600' : ''}`}>Manga Panels</button>
                 </div>
               )}
           </div>
       </nav>
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-[1600px] mx-auto px-4 py-8">
         {error && (
               <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-start gap-4 text-red-200">
                 <AlertTriangle className="w-6 h-6 shrink-0" />

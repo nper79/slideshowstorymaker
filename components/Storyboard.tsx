@@ -1,10 +1,11 @@
 
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw } from 'lucide-react';
+import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download } from 'lucide-react';
 import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
 import html2canvas from 'html2canvas';
+import { createPortal } from 'react-dom';
 
 interface StoryboardProps {
   segments: StorySegment[];
@@ -19,22 +20,17 @@ interface StoryboardProps {
 const Storyboard: React.FC<StoryboardProps> = ({ 
   segments, 
   onGenerateScene,
-  onGenerateVideo,
   onPlayAudio,
   onStopAudio,
   onSelectOption,
   onDeleteAudio
 }) => {
-  const [generatingAudioId, setGeneratingAudioId] = useState<string | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
   const [isTakingScreenshot, setIsTakingScreenshot] = useState(false);
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [generatingAudioId, setGeneratingAudioId] = useState<string | null>(null);
 
   const storyboardContentRef = useRef<HTMLDivElement>(null);
-
-  const handleAudioClick = async (id: string, text: string) => {
-    setGeneratingAudioId(id);
-    try { await onPlayAudio(id, text); } finally { setGeneratingAudioId(null); }
-  }
 
   const handleScreenshot = async () => {
     if (!storyboardContentRef.current) return;
@@ -43,163 +39,248 @@ const Storyboard: React.FC<StoryboardProps> = ({
       const canvas = await html2canvas(storyboardContentRef.current, { useCORS: true, backgroundColor: '#0f172a', scale: 2 });
       const link = document.createElement('a');
       link.href = canvas.toDataURL("image/png");
-      link.download = `storyboard-${new Date().getTime()}.png`;
+      link.download = `manga-panels-${new Date().getTime()}.png`;
       link.click();
     } finally { setIsTakingScreenshot(false); }
   };
 
+  const editingSegment = segments.find(s => s.id === editingSegmentId);
+
+  const handleAudioClick = async (id: string, text: string) => {
+    setGeneratingAudioId(id);
+    try { await onPlayAudio(id, text); } finally { setGeneratingAudioId(null); }
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex justify-between items-center sticky top-0 z-10 bg-[#0f172a]/95 backdrop-blur py-4 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <Clapperboard className="w-6 h-6 text-indigo-400" />
-          <h2 className="text-xl font-bold text-white">Project Storyboard</h2>
+        <div>
+           <h2 className="text-2xl font-serif italic text-white">Manga Panels (新方式)</h2>
+           <p className="text-xs text-slate-500 uppercase tracking-widest">{segments.length} / {segments.length} PANELS GENERATED</p>
         </div>
         <div className="flex gap-4 items-center">
-             <button onClick={handleScreenshot} disabled={isTakingScreenshot} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm transition-all border border-slate-600">
-               {isTakingScreenshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-               Snapshot
+             <button onClick={handleScreenshot} disabled={isTakingScreenshot} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-full flex items-center gap-2 text-xs font-bold transition-all border border-slate-700">
+               {isTakingScreenshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+               DOWNLOAD ALL AS ZIP
              </button>
-             <button onClick={() => setShowPlayer(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg flex items-center gap-2 font-bold transition-all shadow-lg">
-               <Play className="w-4 h-4 fill-current" /> Play Experience
+             <button onClick={() => setShowPlayer(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-full flex items-center gap-2 font-bold text-xs transition-all shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-500/20">
+               <Play className="w-4 h-4 fill-current" /> PLAY EXPERIENCE
              </button>
         </div>
       </div>
 
-      <div ref={storyboardContentRef} className="space-y-12 pb-20 p-2">
+      <div ref={storyboardContentRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
         {segments.map((segment, index) => {
-          const isBranch = segment.type === SegmentType.BRANCH;
-          
+          // Determine what image to show: 1. Selected beat, 2. First generated beat, 3. Master Grid, 4. Placeholder
+          let displayImage = null;
+          if (segment.generatedImageUrls && segment.generatedImageUrls.length > 0) {
+              displayImage = segment.generatedImageUrls[0]; // Show the selected beat or the first crop
+          } else if (segment.masterGridImageUrl) {
+              displayImage = segment.masterGridImageUrl;
+          }
+
           return (
-          <div key={segment.id} className={`relative transition-all duration-500 ${isBranch ? 'ml-12 border-l-2 border-indigo-500/30 pl-8 pb-8' : ''}`}>
-            
-            {/* Header: Scene Text & Audio */}
-            <div className="bg-slate-800/40 p-6 rounded-t-2xl border border-slate-700/50 backdrop-blur-sm">
-                <div className="flex flex-col md:flex-row gap-6">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                            <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded bg-slate-700 text-slate-300">
-                                Scene {index + 1}
-                            </span>
-                             <div className="flex items-center gap-2 ml-auto">
-                                {segment.audioDuration && (
-                                    <span className="text-[10px] font-mono text-slate-400 bg-slate-900/50 px-1.5 py-0.5 rounded border border-slate-700/50">
-                                        {segment.audioDuration.toFixed(1)}s
-                                    </span>
-                                )}
-                                <button onClick={() => handleAudioClick(segment.id, segment.text)} disabled={generatingAudioId === segment.id}
-                                  className={`flex items-center gap-2 px-2 py-1 rounded text-[10px] font-bold ${segment.audioUrl ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/30' : 'bg-indigo-600 text-white'}`}>
-                                  {generatingAudioId === segment.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Volume2 className="w-3 h-3" />}
-                                  {segment.audioUrl ? 'AUDIO READY' : 'GEN AUDIO'}
-                                </button>
-                                {segment.audioUrl && <button onClick={() => onDeleteAudio(segment.id)} className="text-slate-500 hover:text-red-400 p-1"><Trash2 className="w-3 h-3" /></button>}
-                             </div>
+            <div key={segment.id} className="group relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 transition-all shadow-lg flex flex-col">
+                
+                {/* Header Number */}
+                <div className="absolute top-2 right-2 z-10 w-6 h-6 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white/20">
+                    {index + 1}
+                </div>
+
+                {/* Image Area */}
+                <div 
+                    onClick={() => setEditingSegmentId(segment.id)}
+                    className="relative w-full aspect-[16/9] bg-black cursor-pointer overflow-hidden group-image"
+                >
+                    {displayImage ? (
+                        <img src={displayImage} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Panel" />
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-slate-500 gap-2">
+                            {segment.isGenerating ? (
+                                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                            ) : (
+                                <>
+                                    <Grid className="w-8 h-8 opacity-20" />
+                                    <span className="text-[10px] uppercase font-bold tracking-widest opacity-50">Click to Generate</span>
+                                </>
+                            )}
                         </div>
-                        <p className="text-slate-200 text-lg leading-relaxed font-serif">"{segment.text}"</p>
-                    </div>
+                    )}
+
+                     {/* Hover Overlay */}
+                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <div className="bg-black/60 rounded-full p-2 backdrop-blur-sm border border-white/10">
+                            <Maximize2 className="w-4 h-4 text-white" />
+                        </div>
+                     </div>
+                </div>
+
+                {/* Text Area */}
+                <div className="p-4 bg-white min-h-[120px] flex flex-col justify-between">
+                     <div>
+                         <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                             {segment.settingId ? `SCENE: ${segment.settingId.slice(0, 8)}...` : 'NARRATION'}
+                         </h4>
+                         <p className="text-xs text-slate-800 font-serif leading-relaxed line-clamp-4">
+                             {segment.text}
+                         </p>
+                     </div>
+                     {segment.audioUrl && (
+                         <div className="mt-2 flex items-center gap-1">
+                             <Volume2 className="w-3 h-3 text-emerald-600" />
+                             <div className="h-0.5 bg-emerald-200 flex-1 rounded-full overflow-hidden">
+                                 <div className="h-full bg-emerald-500 w-1/2" />
+                             </div>
+                         </div>
+                     )}
                 </div>
             </div>
+          );
+        })}
+      </div>
 
-            {/* Content: Grid vs Selected Beats */}
-            <div className="bg-slate-900/40 p-6 rounded-b-2xl border-x border-b border-slate-700/50 flex flex-col xl:flex-row gap-8">
-               
-               {/* LEFT: Master Grid */}
-               <div className="flex-1 max-w-sm mx-auto xl:mx-0">
-                   <div className="flex justify-between items-center mb-4">
-                      <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
-                          <Grid className="w-4 h-4 text-indigo-400" /> 
-                          1. Generate & Select Beats
-                      </span>
-                      {segment.masterGridImageUrl && (
-                        <button 
-                          onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
-                          disabled={segment.isGenerating}
-                          className="text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 px-2 py-1 rounded flex items-center gap-1.5 transition-all"
-                        >
-                          <RefreshCw className={`w-3 h-3 ${segment.isGenerating ? 'animate-spin' : ''}`} />
-                          Regenerate
+      {/* Detail / Edit Modal */}
+      {editingSegment && (
+        createPortal(
+            <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setEditingSegmentId(null)}>
+                <div className="bg-slate-900 w-full max-w-5xl max-h-[90vh] rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                    
+                    {/* Modal Header */}
+                    <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-950">
+                        <div>
+                            <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Panel Editor</span>
+                            <h3 className="text-xl font-bold text-white">Scene {segments.findIndex(s => s.id === editingSegmentId) + 1}</h3>
+                        </div>
+                        <button onClick={() => setEditingSegmentId(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
+                            <X className="w-6 h-6" />
                         </button>
-                      )}
-                   </div>
-
-                   {/* Master Grid Container - Now 9:16 Vertical */}
-                   {!segment.masterGridImageUrl ? (
-                       <div className="aspect-[9/16] bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl flex items-center justify-center">
-                          <button onClick={() => onGenerateScene(segment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })} className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition-colors shadow-lg shadow-indigo-500/20">
-                             <Grid className="w-4 h-4" /> {segment.isGenerating ? 'Director creating shots...' : 'Generate 2x2 Grid'}
-                          </button>
-                       </div>
-                   ) : (
-                       <div className="relative aspect-[9/16] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
-                          {/* The Master Image */}
-                          <img src={segment.masterGridImageUrl} className="w-full h-full object-cover" />
-                          
-                          {segment.isGenerating && (
-                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20 backdrop-blur-sm">
-                                  <div className="flex flex-col items-center gap-2">
-                                    <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
-                                    <span className="text-xs font-bold text-white">Regenerating shots...</span>
-                                  </div>
-                              </div>
-                          )}
-
-                          {/* Transparent Overlay Grid for Selection - 2x2 Grid */}
-                          <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
-                             {Array.from({ length: 4 }).map((_, i) => {
-                               const isSelected = segment.selectedGridIndices?.includes(i);
-                               return (
-                                 <button 
-                                    key={i} 
-                                    onClick={() => onSelectOption(segment.id, i)} 
-                                    className={`relative transition-all duration-200 border border-white/5 hover:border-white/30 hover:bg-white/10
-                                      ${isSelected ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-500/20' : ''}
-                                    `}
-                                 >
-                                    {isSelected && (
-                                        <div className="absolute top-1 right-1 bg-indigo-600 rounded-full p-0.5 shadow-sm">
-                                            <Check className="w-3 h-3 text-white" />
-                                        </div>
-                                    )}
-                                 </button>
-                               );
-                             })}
-                          </div>
-                       </div>
-                   )}
-               </div>
-
-               {/* RIGHT: Selected Beats Preview */}
-               <div className="flex-[2]">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
-                            <Film className="w-4 h-4 text-pink-400" /> 
-                            2. Selected Beats
-                        </span>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        {(!segment.generatedImageUrls || segment.generatedImageUrls.length === 0) ? (
-                            <div className="col-span-full h-40 flex flex-col items-center justify-center text-slate-600 gap-2 border border-dashed border-slate-800 rounded-xl">
-                                <Grid className="w-8 h-8 opacity-20" />
-                                <p className="text-sm">Select beats from the grid to use in your story.</p>
+                    {/* Modal Content */}
+                    <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        
+                        {/* LEFT: Grid Generation */}
+                        <div className="space-y-6">
+                            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+                                <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                                    <Grid className="w-4 h-4 text-indigo-400" /> 
+                                    Master Grid Generation
+                                </h4>
+                                
+                                <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden relative border border-slate-700 shadow-inner group">
+                                     {editingSegment.masterGridImageUrl ? (
+                                         <>
+                                            <img src={editingSegment.masterGridImageUrl} className="w-full h-full object-contain" />
+                                            <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
+                                                {Array.from({ length: 4 }).map((_, i) => {
+                                                    const isSelected = editingSegment.selectedGridIndices?.includes(i);
+                                                    return (
+                                                        <button 
+                                                            key={i} 
+                                                            onClick={() => onSelectOption(editingSegment.id, i)} 
+                                                            className={`relative transition-all duration-200 border border-white/5 hover:border-white/30 hover:bg-white/10
+                                                            ${isSelected ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-500/20' : ''}`}
+                                                        >
+                                                            {isSelected && <div className="absolute top-2 right-2 bg-indigo-600 rounded-full p-1"><Check className="w-3 h-3 text-white" /></div>}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                         </>
+                                     ) : (
+                                         <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8 text-center">
+                                             <Film className="w-12 h-12 mb-4 opacity-20" />
+                                             <p className="text-sm mb-4">Generate a 4-panel vertical grid to choose the best angle.</p>
+                                             <button 
+                                                onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
+                                                disabled={editingSegment.isGenerating}
+                                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
+                                             >
+                                                 {editingSegment.isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                                 Generate Grid
+                                             </button>
+                                         </div>
+                                     )}
+                                     
+                                     {editingSegment.masterGridImageUrl && (
+                                         <button 
+                                            onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
+                                            className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg backdrop-blur text-xs flex items-center gap-2 border border-white/10"
+                                         >
+                                            <RefreshCw className={`w-3 h-3 ${editingSegment.isGenerating ? 'animate-spin' : ''}`} /> Regenerate
+                                         </button>
+                                     )}
+                                </div>
                             </div>
-                        ) : (
-                            segment.generatedImageUrls.map((url, idx) => (
-                                <div key={idx} className="aspect-[9/16] bg-slate-950 rounded-lg overflow-hidden border border-slate-700 relative group shadow-lg">
-                                     <img src={url} className="w-full h-full object-cover" />
-                                     <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                                        <span className="text-[10px] font-bold text-white">Beat {idx + 1}</span>
+                        </div>
+
+                        {/* RIGHT: Context & Audio */}
+                        <div className="space-y-6">
+                            
+                            {/* Text Card */}
+                            <div className="bg-white rounded-xl p-6 text-slate-900 shadow-sm">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Script / Dialogue</h4>
+                                <p className="font-serif text-lg leading-relaxed">"{editingSegment.text}"</p>
+                            </div>
+
+                            {/* Audio Controls */}
+                            <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+                                <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                                    <Volume2 className="w-4 h-4 text-emerald-400" />
+                                    Voiceover / Narration
+                                </h4>
+                                
+                                <div className="flex items-center gap-4">
+                                     <button 
+                                        onClick={() => handleAudioClick(editingSegment.id, editingSegment.text)} 
+                                        disabled={generatingAudioId === editingSegment.id}
+                                        className={`flex-1 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all
+                                            ${editingSegment.audioUrl 
+                                                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 hover:bg-emerald-600/30' 
+                                                : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
+                                     >
+                                        {generatingAudioId === editingSegment.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
+                                        {editingSegment.audioUrl ? 'Play Audio' : 'Generate Audio'}
+                                     </button>
+                                     
+                                     {editingSegment.audioUrl && (
+                                         <button onClick={() => onDeleteAudio(editingSegment.id)} className="p-3 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors text-slate-400">
+                                             <Trash2 className="w-4 h-4" />
+                                         </button>
+                                     )}
+                                </div>
+                                {editingSegment.audioDuration && (
+                                    <p className="text-xs text-slate-500 mt-2 text-center font-mono">Duration: {editingSegment.audioDuration.toFixed(1)}s</p>
+                                )}
+                            </div>
+
+                            {/* Preview Selected */}
+                            {editingSegment.generatedImageUrls && editingSegment.generatedImageUrls.length > 0 && (
+                                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+                                     <h4 className="text-sm font-bold text-white mb-4">Selected Beats ({editingSegment.generatedImageUrls.length})</h4>
+                                     <div className="grid grid-cols-4 gap-2">
+                                         {editingSegment.generatedImageUrls.map((url, i) => (
+                                             <img key={i} src={url} className="rounded border border-slate-600 aspect-[9/16] object-cover" />
+                                         ))}
                                      </div>
                                 </div>
-                            ))
-                        )}
-                    </div>
-               </div>
+                            )}
 
-            </div>
-          </div>
-        )})}
-      </div>
+                        </div>
+
+                    </div>
+                    
+                    {/* Modal Footer */}
+                    <div className="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
+                        <button onClick={() => setEditingSegmentId(null)} className="px-6 py-2 bg-white text-slate-900 font-bold rounded-lg hover:bg-slate-200 transition-colors">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>,
+            document.body
+        )
+      )}
 
       {showPlayer && <SlideshowPlayer segments={segments} onClose={() => setShowPlayer(false)} onPlayAudio={onPlayAudio} onStopAudio={onStopAudio} />}
     </div>
