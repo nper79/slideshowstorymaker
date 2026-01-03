@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download } from 'lucide-react';
+import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText } from 'lucide-react';
 import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -182,6 +182,10 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                                             ${isSelected ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-500/20' : ''}`}
                                                         >
                                                             {isSelected && <div className="absolute top-2 right-2 bg-indigo-600 rounded-full p-1"><Check className="w-3 h-3 text-white" /></div>}
+                                                            {/* Label for order */}
+                                                            <div className="absolute bottom-2 left-2 bg-black/50 text-white/50 px-1.5 rounded text-[10px] font-mono pointer-events-none">
+                                                                #{i + 1}
+                                                            </div>
                                                         </button>
                                                     );
                                                 })}
@@ -205,7 +209,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                      {editingSegment.masterGridImageUrl && (
                                          <button 
                                             onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
-                                            className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg backdrop-blur text-xs flex items-center gap-2 border border-white/10"
+                                            className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg backdrop-blur text-xs flex items-center gap-2 border border-white/10 z-10"
                                          >
                                             <RefreshCw className={`w-3 h-3 ${editingSegment.isGenerating ? 'animate-spin' : ''}`} /> Regenerate
                                          </button>
@@ -222,6 +226,30 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Script / Dialogue</h4>
                                 <p className="font-serif text-lg leading-relaxed">"{editingSegment.text}"</p>
                             </div>
+                            
+                            {/* Beat Breakdown / Prompts */}
+                            {editingSegment.gridVariations && editingSegment.gridVariations.length > 0 && (
+                                <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+                                     <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <FileText className="w-4 h-4" />
+                                        Visual Progression (Chronological)
+                                     </h4>
+                                     <div className="space-y-3">
+                                        {editingSegment.gridVariations.map((variation, idx) => (
+                                            <div key={idx} className="flex gap-3 items-start p-3 bg-slate-900 rounded-lg border border-slate-700">
+                                                <div className={`text-[10px] font-bold px-2 py-1 rounded uppercase shrink-0 mt-0.5 border
+                                                    ${idx === 0 ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 
+                                                      idx === 1 ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 
+                                                      idx === 2 ? 'bg-purple-900/50 text-purple-200 border-purple-700' : 
+                                                      'bg-purple-900/50 text-purple-200 border-purple-700'}`}>
+                                                    {idx === 0 ? 'Panel 1 (TL)' : idx === 1 ? 'Panel 2 (TR)' : idx === 2 ? 'Panel 3 (BL)' : 'Panel 4 (BR)'}
+                                                </div>
+                                                <p className="text-xs text-slate-300 leading-relaxed font-medium">{variation}</p>
+                                            </div>
+                                        ))}
+                                     </div>
+                                </div>
+                            )}
 
                             {/* Audio Controls */}
                             <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
@@ -257,10 +285,18 @@ const Storyboard: React.FC<StoryboardProps> = ({
                             {/* Preview Selected */}
                             {editingSegment.generatedImageUrls && editingSegment.generatedImageUrls.length > 0 && (
                                 <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-                                     <h4 className="text-sm font-bold text-white mb-4">Selected Beats ({editingSegment.generatedImageUrls.length})</h4>
+                                     <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                                         <Eye className="w-4 h-4 text-pink-400" />
+                                         Selected Beats for Playback
+                                     </h4>
                                      <div className="grid grid-cols-4 gap-2">
                                          {editingSegment.generatedImageUrls.map((url, i) => (
-                                             <img key={i} src={url} className="rounded border border-slate-600 aspect-[9/16] object-cover" />
+                                             <div key={i} className="relative group/thumb">
+                                                 <img src={url} className="rounded border border-slate-600 aspect-[9/16] object-cover w-full" />
+                                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 bg-black/40 transition-opacity">
+                                                     <span className="text-[10px] font-bold text-white bg-black/50 px-1 rounded">{i+1}</span>
+                                                 </div>
+                                             </div>
                                          ))}
                                      </div>
                                 </div>
