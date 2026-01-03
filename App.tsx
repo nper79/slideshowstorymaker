@@ -99,7 +99,6 @@ export default function App() {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
       
-      // Updated prompt for the specific Manhwa Model Sheet look
       const prompt = `Professional Manhwa Character Design Sheet for: ${char.name}.
       VISUAL STYLE: High-quality Korean Webtoon / Anime style. Cel-shaded coloring. Sharp, clean line art.
       
@@ -138,7 +137,6 @@ export default function App() {
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      // Enforce Manhwa style for settings too
       const prompt = `Manhwa Background Art: ${setting.name}. ${setting.description}. Style: Detailed Anime/Webtoon background, high quality, atmospheric lighting.`;
       
       const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.WIDE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
@@ -148,23 +146,96 @@ export default function App() {
     }
   };
 
+  const handleRegeneratePrompts = async (segmentId: string) => {
+      if (!storyData) return;
+      
+      setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
+      addToast("Enriching scene prompts with full story context...", "info");
+
+      try {
+          const segment = storyData.segments.find(s => s.id === segmentId);
+          if (!segment) throw new Error("Segment not found");
+
+          // Build context for the AI so it knows who is in the scene
+          let context = `Characters: ${segment.characterIds.map(id => storyData.characters.find(c => c.id === id)?.name).join(', ')}. `;
+          if (segment.settingId) context += `Location: ${storyData.settings.find(s => s.id === segment.settingId)?.name}.`;
+
+          // Construct full story text for context
+          const fullStoryText = storyData.segments.map(s => s.text).join('\n\n');
+
+          const newPanels = await GeminiService.regeneratePanelPrompts(segment.text, fullStoryText, storyData.artStyle, context);
+          
+          setStoryData(prev => prev ? ({
+              ...prev,
+              segments: prev.segments.map(s => s.id === segmentId ? { ...s, panels: newPanels, isGenerating: false } : s)
+          }) : null);
+          addToast("Prompts refined using full context. You can now Regenerate the Scene.", "success");
+
+      } catch (e) {
+           console.error(e);
+           setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
+           addToast("Prompt refinement failed.", "error");
+      }
+  };
+
   const handleGenerateScene = async (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => {
     if (!storyData) return;
     setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
     try {
       const segment = storyData.segments.find(s => s.id === segmentId);
       if (!segment) throw new Error("Segment not found");
+      
+      // BUILD RICH CONTEXT PROMPT
+      let richPrompt = segment.scenePrompt;
       const refImages: string[] = [];
-      segment.characterIds.forEach(charId => {
-        const char = storyData.characters.find(c => c.id === charId);
-        if (char?.imageUrl) refImages.push(char.imageUrl);
-      });
-      const setting = storyData.settings.find(s => s.id === segment.settingId);
-      if (setting?.imageUrl) refImages.push(setting.imageUrl);
+
+      // 1. MASTER STYLE REFERENCE (SCENE 1)
+      // We grab the master grid from the VERY FIRST segment to use as a style anchor for all others.
+      const firstSegment = storyData.segments[0];
+      if (firstSegment && firstSegment.masterGridImageUrl && firstSegment.id !== segmentId) {
+          refImages.push(firstSegment.masterGridImageUrl);
+      }
+      
+      // Inject Visual Style Guide
+      richPrompt += `\n\n[GLOBAL VISUAL STYLE]: ${storyData.visualStyleGuide}`;
+
+      if (firstSegment && firstSegment.masterGridImageUrl && firstSegment.id !== segmentId) {
+          richPrompt += `\n\n[MASTER STYLE REFERENCE]: The first attached image is the STYLE KEY from Scene 1. You MUST match its art style, line weight, color palette, and atmosphere exactly to ensure consistency.`;
+      }
+
+      // 2. CHARACTER REFERENCES (Textual Grounding + Images)
+      if (segment.characterIds && segment.characterIds.length > 0) {
+          richPrompt += `\n\n[CHARACTERS PRESENT - MAINTAIN CONSISTENCY]:`;
+          segment.characterIds.forEach(charId => {
+              const char = storyData.characters.find(c => c.id === charId);
+              if (char) {
+                  richPrompt += `\n- ${char.name}: ${char.description}`;
+                  if (char.imageUrl) refImages.push(char.imageUrl);
+              }
+          });
+      }
+
+      // 3. SETTING REFERENCES
+      if (segment.settingId) {
+          const setting = storyData.settings.find(s => s.id === segment.settingId);
+          if (setting) {
+              richPrompt += `\n\n[LOCATION]: ${setting.name} - ${setting.description}`;
+              if (setting.imageUrl) refImages.push(setting.imageUrl);
+          }
+      }
       
       const gridVariations = segment.panels ? segment.panels.map(p => p.visualPrompt) : [];
 
-      const masterGridUrl = await GeminiService.generateImage(segment.scenePrompt, options.aspectRatio, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA, true, gridVariations);
+      const masterGridUrl = await GeminiService.generateImage(
+          richPrompt, 
+          options.aspectRatio, 
+          options.imageSize, 
+          refImages, 
+          storyData.visualStyleGuide, 
+          storyData.cinematicDNA, 
+          true, 
+          gridVariations
+      );
       
       const croppedImages = await Promise.all([0,1,2,3].map(i => cropGridCell(masterGridUrl, i)));
 
@@ -310,7 +381,8 @@ export default function App() {
             onSelectOption={handleSelectOption} 
             onPlayAudio={handleGenerateAndPlayAudio} 
             onStopAudio={handleStopAudio} 
-            onDeleteAudio={handleDeleteAudio} 
+            onDeleteAudio={handleDeleteAudio}
+            onRegeneratePrompts={handleRegeneratePrompts}
         />}
       </main>
     </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useMemo } from 'react';
-import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText, MicOff, GitBranch, GitMerge, ChevronDown } from 'lucide-react';
+import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText, MicOff, GitBranch, GitMerge, ChevronDown, Sparkles } from 'lucide-react';
 import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -15,6 +15,7 @@ interface StoryboardProps {
   onStopAudio: () => void;
   onSelectOption: (segmentId: string, optionIndex: number) => void;
   onDeleteAudio: (segmentId: string) => void;
+  onRegeneratePrompts?: (segmentId: string) => void;
 }
 
 const Storyboard: React.FC<StoryboardProps> = ({ 
@@ -23,7 +24,8 @@ const Storyboard: React.FC<StoryboardProps> = ({
   onPlayAudio,
   onStopAudio,
   onSelectOption,
-  onDeleteAudio
+  onDeleteAudio,
+  onRegeneratePrompts
 }) => {
   const [showPlayer, setShowPlayer] = useState(false);
   const [isTakingScreenshot, setIsTakingScreenshot] = useState(false);
@@ -260,16 +262,39 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                 <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden relative border border-slate-700 shadow-inner group">
                                      {editingSegment.masterGridImageUrl ? (
                                          <>
-                                            <img src={editingSegment.masterGridImageUrl} className="w-full h-full object-contain" />
-                                            <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
+                                            <img src={editingSegment.masterGridImageUrl} className={`w-full h-full object-contain transition-all duration-500 ${editingSegment.isGenerating ? 'opacity-30 blur-sm scale-105' : ''}`} />
+                                            
+                                            <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none">
                                                 {Array.from({ length: 4 }).map((_, i) => (
-                                                    <div key={i} className="relative border border-white/5">
-                                                        <div className="absolute bottom-2 left-2 bg-black/50 text-white/70 px-1.5 rounded text-[10px] font-mono pointer-events-none backdrop-blur-sm">
+                                                    <div key={i} className="relative border border-white/10">
+                                                        <div className="absolute bottom-2 left-2 bg-black/60 text-white/90 px-2 py-0.5 rounded text-[10px] font-mono backdrop-blur-sm border border-white/10">
                                                             Beat #{i + 1}
                                                         </div>
                                                     </div>
                                                 ))}
                                             </div>
+
+                                            {editingSegment.isGenerating && (
+                                                <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                                                    <Loader2 className="w-10 h-10 animate-spin text-indigo-500 mb-2" />
+                                                    <span className="text-xs font-bold text-indigo-400 tracking-widest uppercase animate-pulse">Regenerating...</span>
+                                                </div>
+                                            )}
+
+                                            {!editingSegment.isGenerating && (
+                                                 <div className="absolute bottom-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                                    <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 });
+                                                    }}
+                                                    className="flex items-center gap-2 bg-slate-900/90 hover:bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg border border-slate-700 hover:border-indigo-500 shadow-xl backdrop-blur-md transition-all transform hover:scale-105"
+                                                    >
+                                                        <RefreshCw className="w-3.5 h-3.5" />
+                                                        Regenerate Grid
+                                                    </button>
+                                                </div>
+                                            )}
                                          </>
                                      ) : (
                                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8 text-center">
@@ -278,10 +303,10 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                              <button 
                                                 onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
                                                 disabled={editingSegment.isGenerating}
-                                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
+                                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                              >
                                                  {editingSegment.isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                                                 Generate Panels
+                                                 {editingSegment.isGenerating ? 'Generating...' : 'Generate Panels'}
                                              </button>
                                          </div>
                                      )}
@@ -293,10 +318,22 @@ const Storyboard: React.FC<StoryboardProps> = ({
                             
                             {editingSegment.panels && editingSegment.panels.length > 0 && (
                                 <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
-                                     <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <FileText className="w-4 h-4" />
-                                        Beat Breakdown & Text Mapping
-                                     </h4>
+                                     <div className="flex items-center justify-between mb-4">
+                                        <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                                            <FileText className="w-4 h-4" />
+                                            Beat Breakdown
+                                        </h4>
+                                        {onRegeneratePrompts && (
+                                            <button 
+                                                onClick={() => onRegeneratePrompts(editingSegment.id)}
+                                                disabled={editingSegment.isGenerating}
+                                                className="text-[10px] font-bold text-slate-400 hover:text-white flex items-center gap-1 bg-slate-700/50 px-2 py-1 rounded hover:bg-indigo-600 transition-colors disabled:opacity-50"
+                                            >
+                                                {editingSegment.isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                                REFINE PROMPTS
+                                            </button>
+                                        )}
+                                     </div>
                                      <div className="space-y-3">
                                         {editingSegment.panels.map((panel, idx) => (
                                             <div key={idx} className="flex gap-4 items-start p-3 bg-slate-900 rounded-lg border border-slate-700">

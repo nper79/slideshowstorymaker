@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { StoryData, AspectRatio, ImageSize } from "../types";
+import { StoryData, AspectRatio, ImageSize, ManhwaPanel } from "../types";
 
 const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -47,6 +47,84 @@ export const playAudio = async (audioData: ArrayBuffer): Promise<void> => {
   });
 };
 
+export const regeneratePanelPrompts = async (
+    segmentText: string,
+    fullStoryText: string,
+    style: string,
+    contextInfo: string
+): Promise<ManhwaPanel[]> => {
+    const ai = getAi();
+    
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            panels: { 
+                type: Type.ARRAY, 
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        panelIndex: { type: Type.INTEGER },
+                        visualPrompt: { type: Type.STRING, description: "EXTREMELY DETAILED visual description. Include lighting, lens type, texture, background details, and specific character acting." },
+                        caption: { type: Type.STRING, description: "Text overlay. Keep empty for silent beats." },
+                        cameraAngle: { type: Type.STRING }
+                    },
+                    required: ["panelIndex", "visualPrompt", "caption", "cameraAngle"]
+                },
+                description: "Exactly 4 narrative beats."
+            }
+        },
+        required: ["panels"]
+    };
+
+    const systemInstruction = `
+    You are a Cinematographer and Art Director for a high-budget Manhwa.
+    **TASK**: Rewrite the visual prompts for the specific **TARGET SEGMENT** provided below.
+    
+    **CRITICAL**: You have been provided with the **FULL STORY** for context. 
+    - Read the FULL STORY to understand the emotional stakes, previous events, and character motivations leading up to this moment.
+    - Ensure visual continuity with previous scenes implied by the story.
+    - If the segment refers to "he" or "she", use the full story to identify exactly who they are and describe them consistent with previous descriptions.
+
+    **STRICT RULES FOR VISUAL PROMPTS:**
+    1. **NO LAZY DESCRIPTIONS**: Never write "Black screen with text" or "Character standing". 
+       - BAD: "Black screen with text."
+       - GOOD: "A void of absolute darkness. Faint, jagged scratch marks are visible in the texture. White serif text floats in the center, glowing slightly."
+    2. **MAXIMIZE ATMOSPHERE**: Describe the lighting (volumetric, rim light, harsh shadows), the weather (rain streaks, dust motes), and the camera lens (macro, fish-eye, telephoto).
+    3. **SHOW, DON'T TELL**: Instead of "He is sad", describe "Tears welling in the corners of eyes, lower lip trembling, heavy rain masking the crying."
+    4. **4-PANEL FLOW**: Ensure the 4 panels create a mini-movie sequence.
+    
+    **SPECIFIC ASSET CONTEXT**:
+    ${contextInfo}
+    `;
+
+    const response = await ai.models.generateContent({
+        model: MODEL_TEXT_ANALYSIS,
+        contents: `
+FULL STORY CONTEXT:
+"""
+${fullStoryText}
+"""
+
+---
+
+TARGET SEGMENT TO VISUALIZE (Break this specific text into 4 panels):
+"""
+${segmentText}
+"""
+
+ART STYLE: ${style}`,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            systemInstruction: systemInstruction,
+            thinkingConfig: { thinkingBudget: 4096 } // Moderate thinking for better creativity
+        }
+    });
+
+    const result = JSON.parse(response.text || "{}");
+    return result.panels || [];
+};
+
 export const analyzeStoryText = async (storyText: string, artStyle: string): Promise<StoryData> => {
   const ai = getAi();
   
@@ -55,7 +133,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
     properties: {
       title: { type: Type.STRING },
       artStyle: { type: Type.STRING },
-      visualStyleGuide: { type: Type.STRING, description: "Consistent guidelines for lighting, colors, and line work for a Manhwa." },
+      visualStyleGuide: { type: Type.STRING, description: "Detailed instructions for the AI artist. Include specific details on: Line Weight (e.g., thin, thick ink), Color Palette (e.g., pastel, neon, desaturated), Shading Style (e.g., Cel-shaded, Painterly), and Atmosphere." },
       characters: {
         type: Type.ARRAY,
         items: {
@@ -63,7 +141,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             name: { type: Type.STRING },
-            description: { type: Type.STRING, description: "Visual description. ONLY include characters that appear multiple times or are central to the plot." }
+            description: { type: Type.STRING, description: "STRICT VISUAL ONLY. Do not describe personality. Describe: Hair color/style, Eye shape/color, Distinctive marks (scars, glasses), Clothing style (detailed), Colors." }
           },
           required: ["id", "name", "description"]
         }
@@ -75,7 +153,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             name: { type: Type.STRING },
-            description: { type: Type.STRING, description: "Visual description. ONLY include recurring locations." }
+            description: { type: Type.STRING, description: "STRICT VISUAL ONLY. Architecture style, lighting, key props, colors." }
           },
           required: ["id", "name", "description"]
         }
@@ -101,7 +179,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
             nextSegmentId: { type: Type.STRING, description: "ID of the next segment (for linear flow or merging back)." },
             settingId: { type: Type.STRING },
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-            scenePrompt: { type: Type.STRING, description: "General prompt for the 2x2 grid composition." },
+            scenePrompt: { type: Type.STRING, description: "General prompt for the 2x2 grid composition. Focus on action and atmosphere." },
             panels: { 
               type: Type.ARRAY, 
               items: {
@@ -195,10 +273,18 @@ export const generateImage = async (
   if (globalStyle?.toLowerCase().includes('manhwa') || globalStyle?.toLowerCase().includes('manga')) {
       styleInstruction += " AESTHETIC: High-quality Korean Webtoon style. Cel-shaded, sharp lines, dramatic lighting, anime-influenced anatomy. Vibrant colors.";
   }
+  
+  // Consistency Enforcement
+  styleInstruction += " CONSISTENCY PROTOCOL: You must maintain the exact visual identity of the characters provided in the reference images. The character in the output MUST match the reference image's facial features, hair style, and clothing exactly.";
 
   const systemInstruction = `You are an expert concept artist. ${styleInstruction}`;
   
   const promptParts = [`Visual prompt: ${prompt}`];
+  
+  // Add style reference instruction if references are present
+  if (refImages && refImages.length > 0) {
+      promptParts.push("Style reference is attached.");
+  }
   
   if (useGridMode && gridVariations) {
     promptParts.push(`
@@ -211,16 +297,26 @@ IMPORTANT LAYOUT REQUIREMENT: "NANO BANANA PRO" 2x2 GRID
   2. Top-Right: ${gridVariations[1]}
   3. Bottom-Left: ${gridVariations[2]}
   4. Bottom-Right: ${gridVariations[3]}
-- Consistency: Maintain exact character appearance and lighting across all 4 panels.
+- **CONSISTENCY CHECK**: The same character MUST look identical in all 4 panels. Use the same model, clothing, and features.
     `);
   }
 
   const parts: any[] = [{ text: promptParts.join("\n") }];
   
+  // Inject reference images if available
   if (refImages && refImages.length > 0) {
     refImages.forEach(b64 => {
-      parts.push({ inlineData: { mimeType: 'image/png', data: b64.split(',')[1] || b64 } });
+      // Split base64 header if present
+      const base64Data = b64.includes(',') ? b64.split(',')[1] : b64;
+      parts.push({ 
+          inlineData: { 
+              mimeType: 'image/png', 
+              data: base64Data 
+          } 
+      });
     });
+    // Add text instruction to use references
+    parts.push({ text: "REFERENCE IMAGES PROVIDED: Use the above images as the strict GROUND TRUTH for ART STYLE, character design, and setting details." });
   }
 
   try {
