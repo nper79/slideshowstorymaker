@@ -127,37 +127,39 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   const systemInstruction = `
   You are an expert Director for Interactive Manhwa (Korean Webtoons).
   
-  **GOAL**: Adapt the provided text into a visual, interactive storyboard with "Cosmetic Choices".
+  **GOAL**: Adapt the provided text into a visual, interactive storyboard while STRICTLY PRESERVING the original story text.
 
-  ### 1. ASSET EXTRACTION
-  - Identify the protagonists and key locations.
-  - **CRITICAL**: Only create entries in 'characters' and 'settings' arrays if they are **RECURRING**. If a character appears once and never again, do not make a sheet for them.
+  ### 1. TEXT FIDELITY (CRITICAL)
+  - You MUST use the **exact sentences** from the source text for the 'MAIN' segments. 
+  - Do NOT summarize or rewrite the main story. Break it down verbatim into chunks.
+  - You may write *new* text only for the 'BRANCH' segments (the cosmetic choices).
 
-  ### 2. INTERACTIVE STRUCTURE (The "Choices" Logic)
-  - You must identify points in the story where the protagonist could make a choice.
-  - Since the source text is linear, you must invent **Cosmetic Choices**:
-    - Create a 'MAIN' segment that leads to a choice.
-    - Create 2 'BRANCH' segments (Option A and Option B). These branches show different actions but do not change the overall plot.
-    - Create a 'MERGE_POINT' segment where both branches rejoin the main story.
-  - *Example*: Text says "She went to work." -> **Interactive Version**: Choice "How does she go?" -> Branch A: "Take the Bus" / Branch B: "Walk" -> Merge: "She arrived at work."
+  ### 2. INTERACTIVE BRANCHING (Tension Only)
+  - Identify moments of **HIGH TENSION** or **SUSPENSE** in the story to insert a choice.
+  - Do NOT create choices for trivial actions (e.g., "Open door with left or right hand").
+  - Create "Cosmetic Choices":
+    - Choice A and Choice B should lead to slightly different visual sequences (BRANCH segments) but must **MERGE** back into the original story flow immediately after.
+    - Example: "The killer is approaching!" -> Choice: "Hide under bed" vs "Hide in closet". Both branches show the hiding action, then merge back to "The killer entered the room" (Original text).
 
   ### 3. VISUAL PACING (The 4-Panel Rule)
   - Every segment represents ONE 9:16 vertical image split into a 2x2 grid (4 Panels).
   - **DECOUPLE TEXT FROM VISUALS**: 
-    - Do NOT dump text into the first panel.
-    - Use the 4 panels to build tension or atmosphere.
-    - **SILENT BEATS**: You MUST use panels with empty captions ("") to show context, action, or emotion *before* the dialogue/narration appears.
+    - The text for the segment usually appears in the 4th panel (the Result).
+    - Use panels 1, 2, and 3 as **SILENT BEATS** (empty caption) to build atmosphere.
+    - **Context -> Action -> Reaction -> Result (Text)**.
   
   #### EXAMPLE OF PACING:
-  *Source Text*: "I am a woman who lives alone."
+  *Source Text*: "I heard a noise downstairs."
   *Generated Panels*:
-  - Panel 1: Close up of a digital clock changing numbers. Bip Bip. (Caption: "") [SILENT]
-  - Panel 2: The main character sleeping in a messy bed. (Caption: "") [SILENT]
-  - Panel 3: She opens her eyes groggily. (Caption: "") [SILENT]
-  - Panel 4: She stands in front of the bathroom mirror, brushing teeth. (Caption: "I am a woman who lives alone.")
+  - Panel 1: Wide shot of the dark hallway. Shadows stretching. (Caption: "") [SILENT]
+  - Panel 2: Close up of the character's ear twitching. (Caption: "") [SILENT]
+  - Panel 3: Character's eyes widen in fear. (Caption: "") [SILENT]
+  - Panel 4: Character looking towards the stairs. (Caption: "I heard a noise downstairs.")
 
   ### 4. OUTPUT FORMAT
-  - Ensure 'segments' form a linked list using 'nextSegmentId' and 'choices'.
+  - Ensure 'segments' form a linked list using 'nextSegmentId'.
+  - 'MAIN' segments flow into 'BRANCH' segments via 'choices'.
+  - 'BRANCH' segments must flow into a 'MERGE_POINT' segment.
   `;
 
   const response = await ai.models.generateContent({
@@ -191,27 +193,25 @@ export const generateImage = async (
   // Enhance style instruction for Manhwa
   let styleInstruction = `Style: ${globalStyle || 'Manhwa/Webtoon'}.`;
   if (globalStyle?.toLowerCase().includes('manhwa') || globalStyle?.toLowerCase().includes('manga')) {
-      styleInstruction += " AESTHETIC: High-quality Korean Webtoon style. Cel-shaded, sharp lines, dramatic lighting, anime-influenced anatomy.";
+      styleInstruction += " AESTHETIC: High-quality Korean Webtoon style. Cel-shaded, sharp lines, dramatic lighting, anime-influenced anatomy. Vibrant colors.";
   }
 
-  const systemInstruction = `You are an expert concept artist. ${styleInstruction} 
-  ${useGridMode ? 'FORMAT REQUIREMENT: 2x2 Split Screen Grid on a Vertical Canvas.' : ''}`;
+  const systemInstruction = `You are an expert concept artist. ${styleInstruction}`;
   
   const promptParts = [`Visual prompt: ${prompt}`];
   
   if (useGridMode && gridVariations) {
     promptParts.push(`
-STRICT LAYOUT: Create a 2x2 Grid (Manga/Manhwa Page) containing exactly 4 distinct panels.
-- Structure: 2 columns by 2 rows.
-- Composition: The entire final image must be a tall, vertical orientation (9:16 aspect ratio) containing the grid.
-- STYLE CONSTRAINT: NO BORDERS. NO FRAMES. NO GUTTERS. The images should touch each other directly or merge seamlessly.
-- SEQUENTIAL NARRATIVE (Left-to-Right, Top-to-Bottom):
-  1. Top-Left Panel: ${gridVariations[0]}
-  2. Top-Right Panel: ${gridVariations[1]}
-  3. Bottom-Left Panel: ${gridVariations[2]}
-  4. Bottom-Right Panel: ${gridVariations[3]}
-
-- Consistency: Ensure characters and environment look consistent across all 4 panels as they tell a continuous story.
+IMPORTANT LAYOUT REQUIREMENT: "NANO BANANA PRO" 2x2 GRID
+- Create a single vertical image (9:16) that is perfectly divided into a 2x2 grid.
+- **NO BORDERS, NO FRAMES, NO GUTTERS, NO WHITE SPACE.**
+- The 4 images must touch each other directly (Seamless Full Bleed).
+- Panel Order:
+  1. Top-Left: ${gridVariations[0]}
+  2. Top-Right: ${gridVariations[1]}
+  3. Bottom-Left: ${gridVariations[2]}
+  4. Bottom-Right: ${gridVariations[3]}
+- Consistency: Maintain exact character appearance and lighting across all 4 panels.
     `);
   }
 
