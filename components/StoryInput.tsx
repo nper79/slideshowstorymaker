@@ -13,7 +13,7 @@ interface StoryInputProps {
 
 const StoryInput: React.FC<StoryInputProps> = ({ onAnalyze, status, selectedVoice, onVoiceChange }) => {
   const [text, setText] = useState('');
-  const [style, setStyle] = useState('Cinematic Digital Art');
+  const [style, setStyle] = useState('Manhwa / Webtoon'); // Default to Manhwa
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
 
@@ -101,12 +101,12 @@ const StoryInput: React.FC<StoryInputProps> = ({ onAnalyze, status, selectedVoic
                     onChange={(e) => setStyle(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
-                    <option value="Realistic Photography">Realistic Photography (High Detail)</option>
-                    <option value="Cinematic Digital Art">Cinematic Digital Art</option>
-                    <option value="Watercolor Illustration">Watercolor Illustration</option>
-                    <option value="Pixar 3D Animation">Pixar 3D Animation</option>
+                    <option value="Manhwa / Webtoon">Manhwa / Webtoon (Recommended)</option>
                     <option value="Anime / Manga">Anime / Manga</option>
+                    <option value="Cinematic Digital Art">Cinematic Digital Art</option>
                     <option value="Detailed Comic Book">Detailed Comic Book</option>
+                    <option value="Realistic Photography">Realistic Photography</option>
+                    <option value="Watercolor Illustration">Watercolor Illustration</option>
                     <option value="Retro Pixel Art">Retro Pixel Art</option>
                   </select>
                 </div>
@@ -157,7 +157,7 @@ const StoryInput: React.FC<StoryInputProps> = ({ onAnalyze, status, selectedVoic
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Once upon a time in a distant galaxy..."
+            placeholder="Paste your story here. The AI will act as a Manhwa Director, creating panels with text and silent atmospheric beats..."
             className="w-full h-64 bg-slate-900 border border-slate-700 rounded-lg p-4 text-white focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-serif leading-relaxed"
             disabled={isAnalyzing}
           />
@@ -175,12 +175,12 @@ const StoryInput: React.FC<StoryInputProps> = ({ onAnalyze, status, selectedVoic
           {isAnalyzing ? (
             <>
               <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-              Analyzing Story Structure...
+              Analyzing & Directing Manhwa...
             </>
           ) : (
             <>
               <Sparkles className="w-5 h-5" />
-              Analyze & Generate Asset Plan
+              Generate Manhwa Storyboard
             </>
           )}
         </button>

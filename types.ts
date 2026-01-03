@@ -33,20 +33,19 @@ export interface CinematicDNA {
   visualMood: string;
 }
 
+export interface ManhwaPanel {
+  panelIndex: number;
+  visualPrompt: string; // The instruction for the artist
+  caption: string; // The specific text overlay for this panel (can be empty)
+  cameraAngle: string;
+}
+
 export interface StructuredScene {
   subject_details: { appearance: string; clothing: string; expression: string; };
   environment: { setting: string; background_elements: string[]; foreground_elements: string[]; weather_and_atmosphere: string; };
   lighting: { primary_source: string; color_palette: string; shadows: string; };
   camera: { shot_type: string; angle: string; lens_characteristics: string; };
   contextual_inference: string;
-}
-
-export interface VideoClipPrompt {
-  frameIndex: number;
-  duration: number;
-  type: 'ACTION' | 'LOOP_BUFFER';
-  prompt: string;
-  reasoning: string;
 }
 
 export interface Choice {
@@ -62,23 +61,25 @@ export enum SegmentType {
 
 export interface StorySegment {
   id: string;
-  text: string;
+  text: string; // The full text of the segment
   settingId: string;
   characterIds: string[];
-  quadrant: string;
-  temporalLogic: string; 
-  timeOfDay: string; 
-  keyVisualAction: string; 
-  scenePrompt: string; 
+  
+  // New Manhwa Structure
+  panels: ManhwaPanel[]; 
+  
+  // Legacy/Helper fields
+  scenePrompt?: string; 
   structuredScene?: StructuredScene;
   type: SegmentType;
   parentId?: string;
   choices?: Choice[];
   nextSegmentId?: string;
+  
   masterGridImageUrl?: string;
   selectedGridIndices: number[];
-  gridVariations?: string[]; 
   generatedImageUrls: string[]; 
+  
   audioUrl?: string;
   audioDuration?: number;
   videoUrl?: string;

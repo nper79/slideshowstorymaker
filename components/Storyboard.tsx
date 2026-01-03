@@ -1,6 +1,6 @@
 
-import React, { useState, useRef } from 'react';
-import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText } from 'lucide-react';
+import React, { useState, useRef, useMemo } from 'react';
+import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText, MicOff, GitBranch, GitMerge, ChevronDown } from 'lucide-react';
 import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
@@ -32,6 +32,28 @@ const Storyboard: React.FC<StoryboardProps> = ({
 
   const storyboardContentRef = useRef<HTMLDivElement>(null);
 
+  // Group consecutive branches for visualization
+  const flowRows = useMemo(() => {
+    const rows: { type: 'SINGLE' | 'BRANCH_GROUP', items: StorySegment[] }[] = [];
+    let currentBranches: StorySegment[] = [];
+
+    segments.forEach((seg) => {
+        if (seg.type === SegmentType.BRANCH) {
+            currentBranches.push(seg);
+        } else {
+            if (currentBranches.length > 0) {
+                rows.push({ type: 'BRANCH_GROUP', items: [...currentBranches] });
+                currentBranches = [];
+            }
+            rows.push({ type: 'SINGLE', items: [seg] });
+        }
+    });
+    if (currentBranches.length > 0) {
+        rows.push({ type: 'BRANCH_GROUP', items: [...currentBranches] });
+    }
+    return rows;
+  }, [segments]);
+
   const handleScreenshot = async () => {
     if (!storyboardContentRef.current) return;
     setIsTakingScreenshot(true);
@@ -39,7 +61,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
       const canvas = await html2canvas(storyboardContentRef.current, { useCORS: true, backgroundColor: '#0f172a', scale: 2 });
       const link = document.createElement('a');
       link.href = canvas.toDataURL("image/png");
-      link.download = `manga-panels-${new Date().getTime()}.png`;
+      link.download = `manhwa-flow-${new Date().getTime()}.png`;
       link.click();
     } finally { setIsTakingScreenshot(false); }
   };
@@ -51,17 +73,93 @@ const Storyboard: React.FC<StoryboardProps> = ({
     try { await onPlayAudio(id, text); } finally { setGeneratingAudioId(null); }
   }
 
+  // Helper component for the Card to reuse in different layouts
+  const StoryCard = ({ segment, index }: { segment: StorySegment, index: number }) => {
+    let displayImage = null;
+    if (segment.generatedImageUrls && segment.generatedImageUrls.length > 0) {
+        displayImage = segment.generatedImageUrls[0]; 
+    } else if (segment.masterGridImageUrl) {
+        displayImage = segment.masterGridImageUrl;
+    }
+
+    const isBranch = segment.type === SegmentType.BRANCH;
+    const isMerge = segment.type === SegmentType.MERGE_POINT;
+    const hasChoices = segment.choices && segment.choices.length > 0;
+
+    return (
+        <div className={`group relative rounded-xl overflow-hidden border transition-all shadow-lg flex flex-col w-full max-w-md mx-auto
+            ${isBranch ? 'bg-indigo-900/10 border-indigo-500/50 hover:shadow-indigo-500/20' : 
+              isMerge ? 'bg-purple-900/10 border-purple-500/50 hover:shadow-purple-500/20' : 
+              'bg-slate-900 border-slate-800 hover:border-slate-600 hover:shadow-slate-500/10'}`}>
+            
+            <div className="absolute top-2 right-2 z-10 flex gap-2">
+                {isBranch && <div className="w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-lg"><GitBranch className="w-3 h-3" /></div>}
+                {isMerge && <div className="w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center text-white shadow-lg"><GitMerge className="w-3 h-3" /></div>}
+                <div className="w-6 h-6 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white/20">
+                    {index + 1}
+                </div>
+            </div>
+
+            <div 
+                onClick={() => setEditingSegmentId(segment.id)}
+                className="relative w-full aspect-[16/9] bg-black cursor-pointer overflow-hidden group-image"
+            >
+                {displayImage ? (
+                    <img src={displayImage} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Panel" />
+                ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-slate-500 gap-2">
+                        {segment.isGenerating ? (
+                            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                        ) : (
+                            <>
+                                <Grid className="w-8 h-8 opacity-20" />
+                                <span className="text-[10px] uppercase font-bold tracking-widest opacity-50">Click to Generate</span>
+                            </>
+                        )}
+                    </div>
+                )}
+                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <div className="bg-black/60 rounded-full p-2 backdrop-blur-sm border border-white/10">
+                        <Maximize2 className="w-4 h-4 text-white" />
+                    </div>
+                 </div>
+            </div>
+
+            <div className="p-4 bg-slate-900/90 min-h-[100px] flex flex-col justify-between border-t border-white/5">
+                 <div>
+                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                         {segment.settingId ? `SCENE: ${segment.settingId.slice(0, 8)}...` : 'NARRATION'}
+                         {hasChoices && <span className="text-indigo-400 text-[10px] font-bold flex items-center gap-1"><GitBranch className="w-3 h-3"/> CHOICE POINT</span>}
+                     </h4>
+                     <p className="text-xs text-slate-300 font-serif leading-relaxed line-clamp-3">
+                         {segment.text}
+                     </p>
+                 </div>
+                 {hasChoices && (
+                     <div className="mt-3 flex gap-2 flex-wrap">
+                         {segment.choices?.map((c, i) => (
+                             <span key={i} className="text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded border border-indigo-500/30 flex-1 text-center">
+                                 {c.text}
+                             </span>
+                         ))}
+                     </div>
+                 )}
+            </div>
+        </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center sticky top-0 z-10 bg-[#0f172a]/95 backdrop-blur py-4 border-b border-slate-800">
         <div>
-           <h2 className="text-2xl font-serif italic text-white">Manga Panels (新方式)</h2>
-           <p className="text-xs text-slate-500 uppercase tracking-widest">{segments.length} / {segments.length} PANELS GENERATED</p>
+           <h2 className="text-2xl font-serif italic text-white">Narrative Flow</h2>
+           <p className="text-xs text-slate-500 uppercase tracking-widest">{segments.length} INTERACTIVE NODES</p>
         </div>
         <div className="flex gap-4 items-center">
              <button onClick={handleScreenshot} disabled={isTakingScreenshot} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-full flex items-center gap-2 text-xs font-bold transition-all border border-slate-700">
                {isTakingScreenshot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-               DOWNLOAD ALL AS ZIP
+               DOWNLOAD FLOW
              </button>
              <button onClick={() => setShowPlayer(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-full flex items-center gap-2 font-bold text-xs transition-all shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-500/20">
                <Play className="w-4 h-4 fill-current" /> PLAY EXPERIENCE
@@ -69,102 +167,94 @@ const Storyboard: React.FC<StoryboardProps> = ({
         </div>
       </div>
 
-      <div ref={storyboardContentRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
-        {segments.map((segment, index) => {
-          // Determine what image to show: 1. Selected beat, 2. First generated beat, 3. Master Grid, 4. Placeholder
-          let displayImage = null;
-          if (segment.generatedImageUrls && segment.generatedImageUrls.length > 0) {
-              displayImage = segment.generatedImageUrls[0]; // Show the selected beat or the first crop
-          } else if (segment.masterGridImageUrl) {
-              displayImage = segment.masterGridImageUrl;
-          }
+      <div ref={storyboardContentRef} className="pb-32 px-4 flex flex-col items-center relative">
+        {/* Central timeline line */}
+        <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-slate-800 -z-10 transform -translate-x-1/2"></div>
 
-          return (
-            <div key={segment.id} className="group relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 transition-all shadow-lg flex flex-col">
-                
-                {/* Header Number */}
-                <div className="absolute top-2 right-2 z-10 w-6 h-6 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white/20">
-                    {index + 1}
-                </div>
-
-                {/* Image Area */}
-                <div 
-                    onClick={() => setEditingSegmentId(segment.id)}
-                    className="relative w-full aspect-[16/9] bg-black cursor-pointer overflow-hidden group-image"
-                >
-                    {displayImage ? (
-                        <img src={displayImage} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="Panel" />
-                    ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-slate-500 gap-2">
-                            {segment.isGenerating ? (
-                                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                            ) : (
-                                <>
-                                    <Grid className="w-8 h-8 opacity-20" />
-                                    <span className="text-[10px] uppercase font-bold tracking-widest opacity-50">Click to Generate</span>
-                                </>
-                            )}
+        {flowRows.map((row, rowIndex) => {
+            if (row.type === 'SINGLE') {
+                const segment = row.items[0];
+                const index = segments.findIndex(s => s.id === segment.id);
+                return (
+                    <div key={segment.id} className="w-full flex flex-col items-center">
+                        {/* Vertical Connector Input */}
+                        {rowIndex > 0 && <div className="h-8 w-0.5 bg-slate-700"></div>}
+                        
+                        <div className="relative z-0 my-2">
+                             <StoryCard segment={segment} index={index} />
+                             {/* Arrow Down Indicator */}
+                             {rowIndex < flowRows.length - 1 && (
+                                <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 text-slate-600">
+                                    <ChevronDown className="w-6 h-6" />
+                                </div>
+                             )}
                         </div>
-                    )}
-
-                     {/* Hover Overlay */}
-                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <div className="bg-black/60 rounded-full p-2 backdrop-blur-sm border border-white/10">
-                            <Maximize2 className="w-4 h-4 text-white" />
+                    </div>
+                );
+            } else {
+                // BRANCH GROUP
+                return (
+                    <div key={`group-${rowIndex}`} className="w-full flex flex-col items-center my-4">
+                        {/* Branch Split Visuals */}
+                        <div className="relative w-full max-w-4xl h-8 mb-4">
+                            {/* Vertical line coming from top */}
+                            <div className="absolute left-1/2 -top-4 bottom-0 w-0.5 bg-slate-700 transform -translate-x-1/2"></div>
+                            {/* Horizontal bar connecting branches */}
+                            <div className="absolute bottom-1/2 left-[25%] right-[25%] h-0.5 bg-slate-700 border-t border-indigo-900/50"></div>
+                            {/* Vertical droppers to cards */}
+                            <div className="absolute left-[25%] top-1/2 bottom-[-16px] w-0.5 bg-slate-700"></div>
+                            <div className="absolute right-[25%] top-1/2 bottom-[-16px] w-0.5 bg-slate-700"></div>
                         </div>
-                     </div>
-                </div>
 
-                {/* Text Area */}
-                <div className="p-4 bg-white min-h-[120px] flex flex-col justify-between">
-                     <div>
-                         <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                             {segment.settingId ? `SCENE: ${segment.settingId.slice(0, 8)}...` : 'NARRATION'}
-                         </h4>
-                         <p className="text-xs text-slate-800 font-serif leading-relaxed line-clamp-4">
-                             {segment.text}
-                         </p>
-                     </div>
-                     {segment.audioUrl && (
-                         <div className="mt-2 flex items-center gap-1">
-                             <Volume2 className="w-3 h-3 text-emerald-600" />
-                             <div className="h-0.5 bg-emerald-200 flex-1 rounded-full overflow-hidden">
-                                 <div className="h-full bg-emerald-500 w-1/2" />
-                             </div>
-                         </div>
-                     )}
-                </div>
-            </div>
-          );
+                        <div className="flex gap-8 justify-center w-full max-w-6xl">
+                            {row.items.map((segment) => {
+                                const index = segments.findIndex(s => s.id === segment.id);
+                                return (
+                                    <div key={segment.id} className="flex-1 flex justify-center min-w-[300px]">
+                                        <StoryCard segment={segment} index={index} />
+                                    </div>
+                                )
+                            })}
+                        </div>
+                        
+                        {/* Merge Connector Lines */}
+                        <div className="relative w-full max-w-4xl h-8 mt-4">
+                             {/* Vertical risers from cards */}
+                            <div className="absolute left-[25%] top-[-16px] bottom-1/2 w-0.5 bg-slate-700"></div>
+                            <div className="absolute right-[25%] top-[-16px] bottom-1/2 w-0.5 bg-slate-700"></div>
+                             {/* Horizontal merge bar */}
+                            <div className="absolute top-1/2 left-[25%] right-[25%] h-0.5 bg-slate-700"></div>
+                             {/* Vertical line going down to next node */}
+                            <div className="absolute left-1/2 top-1/2 bottom-0 w-0.5 bg-slate-700 transform -translate-x-1/2"></div>
+                        </div>
+                    </div>
+                );
+            }
         })}
       </div>
 
-      {/* Detail / Edit Modal */}
       {editingSegment && (
         createPortal(
             <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setEditingSegmentId(null)}>
                 <div className="bg-slate-900 w-full max-w-5xl max-h-[90vh] rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
                     
-                    {/* Modal Header */}
                     <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-950">
                         <div>
-                            <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Panel Editor</span>
-                            <h3 className="text-xl font-bold text-white">Scene {segments.findIndex(s => s.id === editingSegmentId) + 1}</h3>
+                            <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Interactive Editor</span>
+                            <h3 className="text-xl font-bold text-white">Scene {segments.findIndex(s => s.id === editingSegmentId) + 1} Breakdown</h3>
                         </div>
                         <button onClick={() => setEditingSegmentId(null)} className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
                             <X className="w-6 h-6" />
                         </button>
                     </div>
 
-                    {/* Modal Content */}
                     <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
                         
-                        {/* LEFT: Grid Generation */}
                         <div className="space-y-6">
                             <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
                                 <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
                                     <Grid className="w-4 h-4 text-indigo-400" /> 
-                                    Master Grid Generation
+                                    Master Grid (4-Panel Page)
                                 </h4>
                                 
                                 <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden relative border border-slate-700 shadow-inner group">
@@ -172,90 +262,92 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                          <>
                                             <img src={editingSegment.masterGridImageUrl} className="w-full h-full object-contain" />
                                             <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
-                                                {Array.from({ length: 4 }).map((_, i) => {
-                                                    const isSelected = editingSegment.selectedGridIndices?.includes(i);
-                                                    return (
-                                                        <button 
-                                                            key={i} 
-                                                            onClick={() => onSelectOption(editingSegment.id, i)} 
-                                                            className={`relative transition-all duration-200 border border-white/5 hover:border-white/30 hover:bg-white/10
-                                                            ${isSelected ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-500/20' : ''}`}
-                                                        >
-                                                            {isSelected && <div className="absolute top-2 right-2 bg-indigo-600 rounded-full p-1"><Check className="w-3 h-3 text-white" /></div>}
-                                                            {/* Label for order */}
-                                                            <div className="absolute bottom-2 left-2 bg-black/50 text-white/50 px-1.5 rounded text-[10px] font-mono pointer-events-none">
-                                                                #{i + 1}
-                                                            </div>
-                                                        </button>
-                                                    );
-                                                })}
+                                                {Array.from({ length: 4 }).map((_, i) => (
+                                                    <div key={i} className="relative border border-white/5">
+                                                        <div className="absolute bottom-2 left-2 bg-black/50 text-white/70 px-1.5 rounded text-[10px] font-mono pointer-events-none backdrop-blur-sm">
+                                                            Beat #{i + 1}
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                          </>
                                      ) : (
                                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8 text-center">
                                              <Film className="w-12 h-12 mb-4 opacity-20" />
-                                             <p className="text-sm mb-4">Generate a 4-panel vertical grid to choose the best angle.</p>
+                                             <p className="text-sm mb-4">Generate 4 distinct beats for this segment.</p>
                                              <button 
                                                 onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
                                                 disabled={editingSegment.isGenerating}
                                                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
                                              >
                                                  {editingSegment.isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                                                 Generate Grid
+                                                 Generate Panels
                                              </button>
                                          </div>
-                                     )}
-                                     
-                                     {editingSegment.masterGridImageUrl && (
-                                         <button 
-                                            onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
-                                            className="absolute bottom-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg backdrop-blur text-xs flex items-center gap-2 border border-white/10 z-10"
-                                         >
-                                            <RefreshCw className={`w-3 h-3 ${editingSegment.isGenerating ? 'animate-spin' : ''}`} /> Regenerate
-                                         </button>
                                      )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* RIGHT: Context & Audio */}
                         <div className="space-y-6">
                             
-                            {/* Text Card */}
-                            <div className="bg-white rounded-xl p-6 text-slate-900 shadow-sm">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Script / Dialogue</h4>
-                                <p className="font-serif text-lg leading-relaxed">"{editingSegment.text}"</p>
-                            </div>
-                            
-                            {/* Beat Breakdown / Prompts */}
-                            {editingSegment.gridVariations && editingSegment.gridVariations.length > 0 && (
+                            {editingSegment.panels && editingSegment.panels.length > 0 && (
                                 <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
                                      <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                                         <FileText className="w-4 h-4" />
-                                        Visual Progression (Chronological)
+                                        Beat Breakdown & Text Mapping
                                      </h4>
                                      <div className="space-y-3">
-                                        {editingSegment.gridVariations.map((variation, idx) => (
-                                            <div key={idx} className="flex gap-3 items-start p-3 bg-slate-900 rounded-lg border border-slate-700">
+                                        {editingSegment.panels.map((panel, idx) => (
+                                            <div key={idx} className="flex gap-4 items-start p-3 bg-slate-900 rounded-lg border border-slate-700">
                                                 <div className={`text-[10px] font-bold px-2 py-1 rounded uppercase shrink-0 mt-0.5 border
                                                     ${idx === 0 ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 
                                                       idx === 1 ? 'bg-indigo-900/50 text-indigo-200 border-indigo-700' : 
                                                       idx === 2 ? 'bg-purple-900/50 text-purple-200 border-purple-700' : 
                                                       'bg-purple-900/50 text-purple-200 border-purple-700'}`}>
-                                                    {idx === 0 ? 'Panel 1 (TL)' : idx === 1 ? 'Panel 2 (TR)' : idx === 2 ? 'Panel 3 (BL)' : 'Panel 4 (BR)'}
+                                                    Beat {idx + 1}
                                                 </div>
-                                                <p className="text-xs text-slate-300 leading-relaxed font-medium">{variation}</p>
+                                                <div className="space-y-2 w-full">
+                                                    <div className="flex items-center gap-2">
+                                                        {panel.caption ? (
+                                                            <p className="text-sm text-white font-serif italic">"{panel.caption}"</p>
+                                                        ) : (
+                                                            <p className="text-xs text-slate-500 flex items-center gap-1">
+                                                                <MicOff className="w-3 h-3" /> Silent Panel (Visual Only)
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-400 leading-tight border-l-2 border-slate-700 pl-2">
+                                                        <span className="font-bold text-slate-500">Visual:</span> {panel.visualPrompt}
+                                                    </p>
+                                                </div>
                                             </div>
                                         ))}
                                      </div>
                                 </div>
                             )}
+                            
+                            {editingSegment.choices && editingSegment.choices.length > 0 && (
+                                <div className="bg-indigo-900/20 rounded-xl p-6 border border-indigo-500/30">
+                                     <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <GitBranch className="w-4 h-4" />
+                                        Interactive Choices
+                                     </h4>
+                                     <div className="space-y-2">
+                                         {editingSegment.choices.map((choice, i) => (
+                                             <div key={i} className="bg-slate-900 p-3 rounded border border-slate-700 flex justify-between items-center">
+                                                 <span className="text-sm text-white font-bold">{choice.text}</span>
+                                                 <span className="text-[10px] text-slate-500 font-mono">ID: {choice.targetSegmentId}</span>
+                                             </div>
+                                         ))}
+                                     </div>
+                                </div>
+                            )}
 
-                            {/* Audio Controls */}
                             <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
                                 <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
                                     <Volume2 className="w-4 h-4 text-emerald-400" />
-                                    Voiceover / Narration
+                                    Narration Audio (Full Segment)
                                 </h4>
                                 
                                 <div className="flex items-center gap-4">
@@ -277,36 +369,12 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                          </button>
                                      )}
                                 </div>
-                                {editingSegment.audioDuration && (
-                                    <p className="text-xs text-slate-500 mt-2 text-center font-mono">Duration: {editingSegment.audioDuration.toFixed(1)}s</p>
-                                )}
                             </div>
-
-                            {/* Preview Selected */}
-                            {editingSegment.generatedImageUrls && editingSegment.generatedImageUrls.length > 0 && (
-                                <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-                                     <h4 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                                         <Eye className="w-4 h-4 text-pink-400" />
-                                         Selected Beats for Playback
-                                     </h4>
-                                     <div className="grid grid-cols-4 gap-2">
-                                         {editingSegment.generatedImageUrls.map((url, i) => (
-                                             <div key={i} className="relative group/thumb">
-                                                 <img src={url} className="rounded border border-slate-600 aspect-[9/16] object-cover w-full" />
-                                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 bg-black/40 transition-opacity">
-                                                     <span className="text-[10px] font-bold text-white bg-black/50 px-1 rounded">{i+1}</span>
-                                                 </div>
-                                             </div>
-                                         ))}
-                                     </div>
-                                </div>
-                            )}
 
                         </div>
 
                     </div>
                     
-                    {/* Modal Footer */}
                     <div className="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
                         <button onClick={() => setEditingSegmentId(null)} className="px-6 py-2 bg-white text-slate-900 font-bold rounded-lg hover:bg-slate-200 transition-colors">
                             Done

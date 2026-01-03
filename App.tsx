@@ -99,20 +99,25 @@ export default function App() {
       const char = storyData.characters.find(c => c.id === id);
       if (!char) return;
       
-      // Updated Prompt for Character Sheet layout
-      const prompt = `Character Sheet for ${char.name}. 
-      LAYOUT: A horizontal design sheet featuring 4 distinct views of the character:
-      1. Front View (Full Body)
-      2. Side View (Profile)
-      3. Back View
-      4. Detailed Face Close-up
+      // Updated prompt for the specific Manhwa Model Sheet look
+      const prompt = `Professional Manhwa Character Design Sheet for: ${char.name}.
+      VISUAL STYLE: High-quality Korean Webtoon / Anime style. Cel-shaded coloring. Sharp, clean line art.
       
-      Character Details: ${char.description}.
-      Style: ${storyData.visualStyleGuide}, clean background, consistent character design, high quality concept art.`;
+      LAYOUT REQUIREMENT:
+      - Background: Pure solid WHITE background. No scenery.
+      - Composition: 4 distinct poses arranged horizontally in a row.
+      - Pose 1: Full Body Front View (Standing neutral).
+      - Pose 2: Full Body Side View / Profile.
+      - Pose 3: Full Body Back View.
+      - Pose 4: Large Detailed Headshot/Face Close-up showing expression.
+      
+      CHARACTER DETAILS: ${char.description}.
+      
+      FORMAT: Technical Model Sheet. High resolution, clear details for 3D modeling reference.`;
 
       const imageUrl = await GeminiService.generateImage(
           prompt, 
-          AspectRatio.WIDE, // 16:9 for the wide sheet look
+          AspectRatio.WIDE, 
           ImageSize.K1, 
           [], 
           storyData.visualStyleGuide, 
@@ -133,7 +138,10 @@ export default function App() {
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      const imageUrl = await GeminiService.generateImage(`Environment: ${setting.name}. ${setting.description}`, AspectRatio.WIDE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
+      // Enforce Manhwa style for settings too
+      const prompt = `Manhwa Background Art: ${setting.name}. ${setting.description}. Style: Detailed Anime/Webtoon background, high quality, atmospheric lighting.`;
+      
+      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.WIDE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s) }) : null);
     } catch (e) {
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
@@ -154,16 +162,19 @@ export default function App() {
       const setting = storyData.settings.find(s => s.id === segment.settingId);
       if (setting?.imageUrl) refImages.push(setting.imageUrl);
       
-      const masterGridUrl = await GeminiService.generateImage(segment.scenePrompt, options.aspectRatio, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA, true, segment.gridVariations);
-      const defaultIndex = 0;
-      const croppedImage = await cropGridCell(masterGridUrl, defaultIndex);
+      const gridVariations = segment.panels ? segment.panels.map(p => p.visualPrompt) : [];
+
+      const masterGridUrl = await GeminiService.generateImage(segment.scenePrompt, options.aspectRatio, options.imageSize, refImages, storyData.visualStyleGuide, storyData.cinematicDNA, true, gridVariations);
+      
+      const croppedImages = await Promise.all([0,1,2,3].map(i => cropGridCell(masterGridUrl, i)));
+
       setStoryData(prev => prev ? ({
         ...prev,
         segments: prev.segments.map(s => s.id === segmentId ? { 
             ...s, 
             masterGridImageUrl: masterGridUrl, 
-            selectedGridIndices: [defaultIndex],
-            generatedImageUrls: [croppedImage],
+            selectedGridIndices: [0, 1, 2, 3], 
+            generatedImageUrls: croppedImages,
             isGenerating: false 
         } : s)
       }) : null);
@@ -182,8 +193,8 @@ export default function App() {
         if (newIndices.includes(optionIndex)) newIndices = newIndices.filter(i => i !== optionIndex);
         else newIndices.push(optionIndex);
         
-        // If unselecting results in empty, keep it empty or handle logic elsewhere.
-        // If selecting, crop new ones.
+        newIndices.sort((a,b) => a-b);
+
         const newImages = await Promise.all(newIndices.map(async (idx) => await cropGridCell(segment.masterGridImageUrl!, idx)));
         
         setStoryData(prev => prev ? ({
@@ -191,10 +202,6 @@ export default function App() {
             segments: prev.segments.map(s => s.id === segmentId ? { ...s, selectedGridIndices: newIndices, generatedImageUrls: newImages } : s)
         }) : null);
     } catch (e) { console.error(e); }
-  };
-
-  const handleEditImage = async (segmentId: string, instruction: string) => {
-      // Placeholder for edit functionality if needed, kept from previous state
   };
 
   const handleDeleteAudio = (segmentId: string) => {

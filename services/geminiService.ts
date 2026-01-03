@@ -55,6 +55,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
     properties: {
       title: { type: Type.STRING },
       artStyle: { type: Type.STRING },
+      visualStyleGuide: { type: Type.STRING, description: "Consistent guidelines for lighting, colors, and line work for a Manhwa." },
       characters: {
         type: Type.ARRAY,
         items: {
@@ -62,7 +63,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             name: { type: Type.STRING },
-            description: { type: Type.STRING, description: "Visual description (appearance, clothes, face)." }
+            description: { type: Type.STRING, description: "Visual description. ONLY include characters that appear multiple times or are central to the plot." }
           },
           required: ["id", "name", "description"]
         }
@@ -74,7 +75,7 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           properties: {
             id: { type: Type.STRING },
             name: { type: Type.STRING },
-            description: { type: Type.STRING, description: "Visual description of the location/environment." }
+            description: { type: Type.STRING, description: "Visual description. ONLY include recurring locations." }
           },
           required: ["id", "name", "description"]
         }
@@ -85,18 +86,38 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
           type: Type.OBJECT,
           properties: {
             id: { type: Type.STRING },
-            text: { type: Type.STRING, description: "Original text segment (3-4 sentences)." },
+            text: { type: Type.STRING, description: "The specific text chunk for this segment." },
             type: { type: Type.STRING, enum: ['MAIN', 'BRANCH', 'MERGE_POINT'] },
+            choices: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        text: { type: Type.STRING, description: "The choice text presented to the user." },
+                        targetSegmentId: { type: Type.STRING, description: "The ID of the BRANCH segment this choice leads to." }
+                    }
+                }
+            },
+            nextSegmentId: { type: Type.STRING, description: "ID of the next segment (for linear flow or merging back)." },
             settingId: { type: Type.STRING },
             characterIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-            scenePrompt: { type: Type.STRING, description: "Detailed visual prompt for this specific moment." },
-            gridVariations: { 
+            scenePrompt: { type: Type.STRING, description: "General prompt for the 2x2 grid composition." },
+            panels: { 
               type: Type.ARRAY, 
-              items: { type: Type.STRING },
-              description: "A list of exactly 4 chronological narrative beats. 1st string = Start of action, 4th string = End of action. Used to generate a 4-panel manga sequence."
+              items: {
+                  type: Type.OBJECT,
+                  properties: {
+                      panelIndex: { type: Type.INTEGER },
+                      visualPrompt: { type: Type.STRING, description: "Visual description for this specific beat." },
+                      caption: { type: Type.STRING, description: "Text overlay. MUST BE EMPTY for silent beats." },
+                      cameraAngle: { type: Type.STRING }
+                  },
+                  required: ["panelIndex", "visualPrompt", "caption", "cameraAngle"]
+              },
+              description: "Exactly 4 narrative beats. Use silent beats to build up to the text."
             }
           },
-          required: ["id", "text", "type", "settingId", "characterIds", "scenePrompt", "gridVariations"]
+          required: ["id", "text", "type", "settingId", "characterIds", "scenePrompt", "panels"]
         }
       }
     },
@@ -104,25 +125,39 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   };
 
   const systemInstruction = `
-  You are a Cinematic Storyboard Assistant and Director.
+  You are an expert Director for Interactive Manhwa (Korean Webtoons).
   
-  Your goal is to break the story into small segments (3-4 sentences max) and plan the visual assets.
+  **GOAL**: Adapt the provided text into a visual, interactive storyboard with "Cosmetic Choices".
+
+  ### 1. ASSET EXTRACTION
+  - Identify the protagonists and key locations.
+  - **CRITICAL**: Only create entries in 'characters' and 'settings' arrays if they are **RECURRING**. If a character appears once and never again, do not make a sheet for them.
+
+  ### 2. INTERACTIVE STRUCTURE (The "Choices" Logic)
+  - You must identify points in the story where the protagonist could make a choice.
+  - Since the source text is linear, you must invent **Cosmetic Choices**:
+    - Create a 'MAIN' segment that leads to a choice.
+    - Create 2 'BRANCH' segments (Option A and Option B). These branches show different actions but do not change the overall plot.
+    - Create a 'MERGE_POINT' segment where both branches rejoin the main story.
+  - *Example*: Text says "She went to work." -> **Interactive Version**: Choice "How does she go?" -> Branch A: "Take the Bus" / Branch B: "Walk" -> Merge: "She arrived at work."
+
+  ### 3. VISUAL PACING (The 4-Panel Rule)
+  - Every segment represents ONE 9:16 vertical image split into a 2x2 grid (4 Panels).
+  - **DECOUPLE TEXT FROM VISUALS**: 
+    - Do NOT dump text into the first panel.
+    - Use the 4 panels to build tension or atmosphere.
+    - **SILENT BEATS**: You MUST use panels with empty captions ("") to show context, action, or emotion *before* the dialogue/narration appears.
   
-  CRITICAL: For each segment, you must act as a Director and breakdown the action into a sequence of 4 distinct chronological beats (Manga Panels).
-  
-  For 'gridVariations', provide exactly 4 strings describing the progression of events in that segment:
-  1. Panel 1 (Top-Left): The beginning of the action.
-  2. Panel 2 (Top-Right): The reaction or development.
-  3. Panel 3 (Bottom-Left): The conflict or climax of this small segment.
-  4. Panel 4 (Bottom-Right): The resolution or transition to the next segment.
-  
-  Example if text is "I woke up late and ran to the alley":
-  1. Close up on alarm clock showing late time.
-  2. Character jumping out of bed in panic.
-  3. Character running down the busy street.
-  4. Character entering the dark alleyway.
-  
-  Ensure the visual descriptions are vivid and include camera angles.
+  #### EXAMPLE OF PACING:
+  *Source Text*: "I am a woman who lives alone."
+  *Generated Panels*:
+  - Panel 1: Close up of a digital clock changing numbers. Bip Bip. (Caption: "") [SILENT]
+  - Panel 2: The main character sleeping in a messy bed. (Caption: "") [SILENT]
+  - Panel 3: She opens her eyes groggily. (Caption: "") [SILENT]
+  - Panel 4: She stands in front of the bathroom mirror, brushing teeth. (Caption: "I am a woman who lives alone.")
+
+  ### 4. OUTPUT FORMAT
+  - Ensure 'segments' form a linked list using 'nextSegmentId' and 'choices'.
   `;
 
   const response = await ai.models.generateContent({
@@ -151,18 +186,22 @@ export const generateImage = async (
 ): Promise<string> => {
   const ai = getAi();
   
-  // Use user-requested aspect ratio (defaulting to MOBILE 9:16).
-  // If the user wants a grid in 9:16, the result will be a 2x2 grid where each cell is also 9:16.
   const configAspectRatio = aspectRatio;
 
-  const systemInstruction = `You are an expert concept artist. Style: ${globalStyle || 'Cinematic'}. 
+  // Enhance style instruction for Manhwa
+  let styleInstruction = `Style: ${globalStyle || 'Manhwa/Webtoon'}.`;
+  if (globalStyle?.toLowerCase().includes('manhwa') || globalStyle?.toLowerCase().includes('manga')) {
+      styleInstruction += " AESTHETIC: High-quality Korean Webtoon style. Cel-shaded, sharp lines, dramatic lighting, anime-influenced anatomy.";
+  }
+
+  const systemInstruction = `You are an expert concept artist. ${styleInstruction} 
   ${useGridMode ? 'FORMAT REQUIREMENT: 2x2 Split Screen Grid on a Vertical Canvas.' : ''}`;
   
   const promptParts = [`Visual prompt: ${prompt}`];
   
   if (useGridMode && gridVariations) {
     promptParts.push(`
-STRICT LAYOUT: Create a 2x2 Grid (Manga Page) containing exactly 4 distinct panels.
+STRICT LAYOUT: Create a 2x2 Grid (Manga/Manhwa Page) containing exactly 4 distinct panels.
 - Structure: 2 columns by 2 rows.
 - Composition: The entire final image must be a tall, vertical orientation (9:16 aspect ratio) containing the grid.
 - STYLE CONSTRAINT: NO BORDERS. NO FRAMES. NO GUTTERS. The images should touch each other directly or merge seamlessly.
