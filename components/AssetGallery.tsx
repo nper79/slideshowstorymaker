@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Users, Map, RefreshCw, Wand2 } from 'lucide-react';
+import { Users, Map, RefreshCw, Wand2, Grid, CheckCircle2 } from 'lucide-react';
 import { Character, Setting } from '../types';
 
 interface AssetGalleryProps {
@@ -82,14 +82,15 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {settings.map(setting => (
-            <div key={setting.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 group hover:border-emerald-500/50 transition-all">
-              <div className="aspect-video bg-slate-900 relative">
+            <div key={setting.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 group hover:border-emerald-500/50 transition-all flex flex-col">
+              {/* Changed to aspect-square to show the 2x2 grid nicely */}
+              <div className="aspect-square bg-slate-900 relative">
                  {setting.imageUrl ? (
                   <img src={setting.imageUrl} alt={setting.name} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 p-6 text-center">
-                    <Map className="w-12 h-12 mb-2 opacity-20" />
-                    <p className="text-sm">Environment Art Pending</p>
+                    <Grid className="w-12 h-12 mb-2 opacity-20" />
+                    <p className="text-sm">Authorized Views Pending</p>
                   </div>
                 )}
                 
@@ -100,16 +101,33 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
                 )}
               </div>
               
-              <div className="p-4">
-                <h3 className="font-bold text-white mb-1">{setting.name}</h3>
-                <p className="text-xs text-slate-400 line-clamp-2 mb-4 h-8">{setting.description}</p>
+              <div className="p-4 bg-slate-850 flex-1 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-white mb-1">{setting.name}</h3>
+                  <p className="text-xs text-slate-400 line-clamp-3 mb-4">{setting.description}</p>
+                  
+                  {/* Authorized Views Thumbnails */}
+                  {setting.authorizedViews && setting.authorizedViews.length > 0 && (
+                      <div className="mb-4">
+                          <p className="text-[10px] font-bold text-emerald-400 mb-2 uppercase tracking-wide">Authorized Views (Reference Assets)</p>
+                          <div className="grid grid-cols-4 gap-1">
+                              {setting.authorizedViews.map(view => (
+                                  <div key={view.id} className="aspect-square bg-slate-700 rounded overflow-hidden border border-emerald-500/30 group/view relative">
+                                      <img src={view.imageUrl} className="w-full h-full object-cover opacity-80 group-hover/view:opacity-100 transition-opacity" title={view.name} />
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  )}
+                </div>
+
                 <button
                   onClick={() => onGenerateSetting(setting.id)}
                   disabled={setting.isGenerating}
                   className="w-full py-2 bg-slate-700 hover:bg-emerald-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                 >
                   {setting.imageUrl ? <RefreshCw className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
-                  {setting.imageUrl ? 'Regenerate' : 'Generate'}
+                  {setting.imageUrl ? 'Regenerate Reference Sheet' : 'Generate Reference Sheet'}
                 </button>
               </div>
             </div>

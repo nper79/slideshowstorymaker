@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload, XCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+import { Layout, Clapperboard, Layers, ChevronRight, Key, ExternalLink, Download, Upload, XCircle, CheckCircle, Info, AlertTriangle, Users, BookOpen, PenTool } from 'lucide-react';
 import StoryInput from './components/StoryInput';
 import AssetGallery from './components/AssetGallery';
 import Storyboard from './components/Storyboard';
@@ -101,18 +101,8 @@ export default function App() {
       
       const prompt = `Professional Manhwa Character Design Sheet for: ${char.name}.
       VISUAL STYLE: High-quality Korean Webtoon / Anime style. Cel-shaded coloring. Sharp, clean line art.
-      
-      LAYOUT REQUIREMENT:
-      - Background: Pure solid WHITE background. No scenery.
-      - Composition: 4 distinct poses arranged horizontally in a row.
-      - Pose 1: Full Body Front View (Standing neutral).
-      - Pose 2: Full Body Side View / Profile.
-      - Pose 3: Full Body Back View.
-      - Pose 4: Large Detailed Headshot/Face Close-up showing expression.
-      
-      CHARACTER DETAILS: ${char.description}.
-      
-      FORMAT: Technical Model Sheet. High resolution, clear details for 3D modeling reference.`;
+      LAYOUT REQUIREMENT: 4 distinct poses (Front, Side, Back, Face) on a pure solid WHITE background.
+      CHARACTER DETAILS: ${char.description}.`;
 
       const imageUrl = await GeminiService.generateImage(
           prompt, 
@@ -134,15 +124,28 @@ export default function App() {
   const handleGenerateSetting = async (id: string) => {
     if (!storyData) return;
     setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: true } : s) }) : null);
+    addToast("Generating isometric + top-down view...", "info");
     try {
       const setting = storyData.settings.find(s => s.id === id);
       if (!setting) return;
-      const prompt = `Manhwa Background Art: ${setting.name}. ${setting.description}. Style: Detailed Anime/Webtoon background, high quality, atmospheric lighting.`;
       
-      const imageUrl = await GeminiService.generateImage(prompt, AspectRatio.WIDE, ImageSize.K1, [], storyData.visualStyleGuide, storyData.cinematicDNA, false);
+      // Updated prompt to match user's successful structure exactly
+      const prompt = `create a 16x9 image of the location ${setting.name}, where half is the ${setting.name} in isometric view and the other is the same ${setting.name} but top-down view. ${setting.description}. white background. no text.`;
+      
+      const imageUrl = await GeminiService.generateImage(
+          prompt, 
+          AspectRatio.WIDE, 
+          ImageSize.K1, 
+          [], 
+          storyData.visualStyleGuide, 
+          storyData.cinematicDNA, 
+          false
+      );
+      
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl, isGenerating: false } : s) }) : null);
     } catch (e) {
       setStoryData(prev => prev ? ({ ...prev, settings: prev.settings.map(s => s.id === id ? { ...s, isGenerating: false } : s) }) : null);
+      addToast("Setting generation failed.", "error");
     }
   };
 
@@ -150,17 +153,18 @@ export default function App() {
       if (!storyData) return;
       
       setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
-      addToast("Enriching scene prompts with full story context...", "info");
+      addToast("Enriching scene prompts with technical layout context...", "info");
 
       try {
           const segment = storyData.segments.find(s => s.id === segmentId);
           if (!segment) throw new Error("Segment not found");
 
-          // Build context for the AI so it knows who is in the scene
           let context = `Characters: ${segment.characterIds.map(id => storyData.characters.find(c => c.id === id)?.name).join(', ')}. `;
-          if (segment.settingId) context += `Location: ${storyData.settings.find(s => s.id === segment.settingId)?.name}.`;
+          const setting = storyData.settings.find(s => s.id === segment.settingId);
+          if (setting) {
+              context += `Location: ${setting.name}. SPATIAL BLUEPRINT: ${setting.spatialLayout}.`;
+          }
 
-          // Construct full story text for context
           const fullStoryText = storyData.segments.map(s => s.text).join('\n\n');
 
           const newPanels = await GeminiService.regeneratePanelPrompts(segment.text, fullStoryText, storyData.artStyle, context);
@@ -169,65 +173,85 @@ export default function App() {
               ...prev,
               segments: prev.segments.map(s => s.id === segmentId ? { ...s, panels: newPanels, isGenerating: false } : s)
           }) : null);
-          addToast("Prompts refined using full context. You can now Regenerate the Scene.", "success");
+          addToast("Prompts refined with spatial accuracy.", "success");
 
       } catch (e) {
-           console.error(e);
            setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: false } : s) }) : null);
            addToast("Prompt refinement failed.", "error");
       }
   };
 
-  const handleGenerateScene = async (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => {
+  const handleGenerateScene = async (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize, referenceViewUrl?: string }) => {
     if (!storyData) return;
     setStoryData(prev => prev ? ({ ...prev, segments: prev.segments.map(s => s.id === segmentId ? { ...s, isGenerating: true } : s) }) : null);
     try {
       const segment = storyData.segments.find(s => s.id === segmentId);
       if (!segment) throw new Error("Segment not found");
       
-      // BUILD RICH CONTEXT PROMPT
-      let richPrompt = segment.scenePrompt;
-      const refImages: string[] = [];
+      const setting = storyData.settings.find(s => s.id === segment.settingId);
+      let generalSettingPrompt = "";
+      let settingColors = "Neutral cinematic lighting";
+      
+      if (setting) {
+          generalSettingPrompt = `\n\n[LOCATION]: ${setting.name}. ${setting.spatialLayout}.`;
+          if (setting.colorPalette) settingColors = setting.colorPalette;
+      }
 
-      // 1. MASTER STYLE REFERENCE (SCENE 1)
-      // We grab the master grid from the VERY FIRST segment to use as a style anchor for all others.
+      const refImages: string[] = [];
       const firstSegment = storyData.segments[0];
       if (firstSegment && firstSegment.masterGridImageUrl && firstSegment.id !== segmentId) {
           refImages.push(firstSegment.masterGridImageUrl);
       }
-      
-      // Inject Visual Style Guide
-      richPrompt += `\n\n[GLOBAL VISUAL STYLE]: ${storyData.visualStyleGuide}`;
 
-      if (firstSegment && firstSegment.masterGridImageUrl && firstSegment.id !== segmentId) {
-          richPrompt += `\n\n[MASTER STYLE REFERENCE]: The first attached image is the STYLE KEY from Scene 1. You MUST match its art style, line weight, color palette, and atmosphere exactly to ensure consistency.`;
-      }
-
-      // 2. CHARACTER REFERENCES (Textual Grounding + Images)
+      // 3. CHARACTER REFERENCES & PROMPT PREPARATION
+      // CRITICAL CHANGE: We capture the specific clothing details string here to inject into every panel.
+      let charPrompt = "\n\n[CHARACTERS]:";
+      let characterInjection = ""; // New string to hold strict clothing details
       if (segment.characterIds && segment.characterIds.length > 0) {
-          richPrompt += `\n\n[CHARACTERS PRESENT - MAINTAIN CONSISTENCY]:`;
           segment.characterIds.forEach(charId => {
               const char = storyData.characters.find(c => c.id === charId);
               if (char) {
-                  richPrompt += `\n- ${char.name}: ${char.description}`;
+                  charPrompt += `\n- ${char.name}: ${char.description}`;
+                  characterInjection += ` ${char.name} is wearing: ${char.description}. `; 
                   if (char.imageUrl) refImages.push(char.imageUrl);
               }
           });
       }
 
-      // 3. SETTING REFERENCES
-      if (segment.settingId) {
-          const setting = storyData.settings.find(s => s.id === segment.settingId);
-          if (setting) {
-              richPrompt += `\n\n[LOCATION]: ${setting.name} - ${setting.description}`;
-              if (setting.imageUrl) refImages.push(setting.imageUrl);
-          }
-      }
+      // --- THE "ZERO MANUAL WORK" LOGIC (REFINED v2) ---
       
-      const gridVariations = segment.panels ? segment.panels.map(p => p.visualPrompt) : [];
+      const gridVariations = segment.panels ? segment.panels.map((p, idx) => {
+         const isEstablishing = p.shotType === 'ESTABLISHING' || idx === 0;
+         
+         if (isEstablishing) {
+             // BEAT 1: ESTABLISHING SHOT
+             // Added "WELL LIT" to avoid silhouette issue.
+             return `Panel ${idx+1} [ESTABLISHING SHOT]: ${p.visualPrompt}.
+             SUBJECT DETAILS: ${characterInjection}.
+             Wide angle. SHOW FULL ARCHITECTURE. ${generalSettingPrompt}.
+             LIGHTING: Bright, well-lit scene. Ensure ${characterInjection} is clearly visible and NOT in silhouette.`;
+         } else {
+             // BEAT 2-4: ISOLATION SHOTS (THE "CUTOUT" TRICK)
+             // Added "characterInjection" to force correct shoes/clothes in macro shots.
+             return `Panel ${idx+1} [ISOLATION SHOT]: ${p.visualPrompt}.
+             
+             SUBJECT DETAILS: ${characterInjection}.
+             
+             CRITICAL RULE: DO NOT DRAW THE ROOM.
+             - Focus ONLY on the Subject.
+             - Background MUST BE: Abstract Blur / Bokeh / Dark Void / Speed Lines.
+             - Color Palette: ${settingColors}.
+             - NO furniture, NO windows, NO doors.
+             - COSTUME: Match the description "${characterInjection}" exactly (e.g., if wearing heels, draw heels).
+             `;
+         }
+      }) : [];
+      
+      // We pass the setting image if it exists, but primarily for the establishing shot style
+      if (setting && setting.imageUrl) refImages.push(setting.imageUrl);
 
       const masterGridUrl = await GeminiService.generateImage(
-          richPrompt, 
+          `Story Segment: ${segment.text} ${charPrompt}`, 
           options.aspectRatio, 
           options.imageSize, 
           refImages, 
@@ -331,7 +355,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 relative z-50">
-      {/* Toast Overlay */}
       <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
         {toasts.map(t => (
           <div key={t.id} className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl border border-white/10 backdrop-blur-md animate-fade-in ${t.type === 'error' ? 'bg-red-500/90' : t.type === 'success' ? 'bg-emerald-500/90' : 'bg-slate-800/90'} text-white`}>
@@ -343,24 +366,58 @@ export default function App() {
         ))}
       </div>
 
-      <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur h-16 flex items-center px-4 md:px-8 justify-between">
-          <div className="flex items-center gap-2">
-              <Layout className="w-8 h-8 text-indigo-500" />
-              <span className="text-xl font-bold">StoryBoard AI</span>
+      <nav className="border-b border-slate-800 bg-[#0f172a]/95 sticky top-0 z-50 backdrop-blur min-h-[4rem] flex flex-col md:flex-row items-center px-4 md:px-8 justify-between py-3 md:py-0 gap-4 md:gap-0">
+          <div className="flex items-center gap-2 self-start md:self-center">
+              <Layout className="w-7 h-7 text-indigo-500" />
+              <span className="text-lg md:text-xl font-bold whitespace-nowrap">StoryBoard AI</span>
           </div>
-          <div className="flex gap-4">
-               <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
-               <button onClick={handleImportClick} className="px-3 py-1.5 bg-slate-800 rounded border border-slate-700 flex items-center gap-2"><Upload className="w-4 h-4" /> Import</button>
-               {storyData && <button onClick={handleExport} className="px-3 py-1.5 bg-slate-800 rounded border border-slate-700 flex items-center gap-2"><Download className="w-4 h-4" /> Export</button>}
+          
+          <div className="flex flex-wrap items-center justify-center gap-2 md:gap-4 w-full md:w-auto">
+               <div className="flex items-center gap-2">
+                 <input type="file" ref={fileInputRef} className="hidden" accept=".zip" onChange={handleFileChange} />
+                 <button onClick={handleImportClick} className="p-2 md:px-3 md:py-1.5 bg-slate-800 rounded border border-slate-700 flex items-center gap-2 hover:bg-slate-700 transition-colors" title="Import Project">
+                   <Upload className="w-4 h-4" /> 
+                   <span className="hidden md:inline text-xs font-bold">Import</span>
+                 </button>
+                 {storyData && (
+                   <button onClick={handleExport} className="p-2 md:px-3 md:py-1.5 bg-slate-800 rounded border border-slate-700 flex items-center gap-2 hover:bg-slate-700 transition-colors" title="Export Project">
+                     <Download className="w-4 h-4" /> 
+                     <span className="hidden md:inline text-xs font-bold">Export</span>
+                   </button>
+                 )}
+               </div>
+
                {storyData && (
-                <div className="flex bg-slate-800 rounded p-1">
-                  <button onClick={() => setActiveTab(Tab.INPUT)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.INPUT ? 'bg-indigo-600' : ''}`}>Story</button>
-                  <button onClick={() => setActiveTab(Tab.ASSETS)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.ASSETS ? 'bg-indigo-600' : ''}`}>Characters</button>
-                  <button onClick={() => setActiveTab(Tab.STORYBOARD)} className={`px-4 py-1.5 rounded text-sm ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600' : ''}`}>Manga Panels</button>
+                <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 shadow-inner">
+                  <button 
+                    onClick={() => setActiveTab(Tab.INPUT)} 
+                    className={`flex items-center gap-2 px-3 md:px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === Tab.INPUT ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5 md:hidden" />
+                    <span className="hidden md:inline">Story</span>
+                    <span className="md:hidden">Story</span>
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab(Tab.ASSETS)} 
+                    className={`flex items-center gap-2 px-3 md:px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === Tab.ASSETS ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    <Users className="w-3.5 h-3.5 md:hidden" />
+                    <span className="hidden md:inline">Characters</span>
+                    <span className="md:hidden">Assets</span>
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab(Tab.STORYBOARD)} 
+                    className={`flex items-center gap-2 px-3 md:px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === Tab.STORYBOARD ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    <PenTool className="w-3.5 h-3.5 md:hidden" />
+                    <span className="hidden md:inline">Manga Panels</span>
+                    <span className="md:hidden">Manga</span>
+                  </button>
                 </div>
               )}
           </div>
       </nav>
+
       <main className="max-w-[1600px] mx-auto px-4 py-8">
         {error && (
               <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-start gap-4 text-red-200">
@@ -376,6 +433,7 @@ export default function App() {
         {activeTab === Tab.ASSETS && storyData && <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />}
         {activeTab === Tab.STORYBOARD && storyData && <Storyboard 
             segments={storyData.segments} 
+            settings={storyData.settings} // Pass settings for dropdown
             onGenerateScene={handleGenerateScene} 
             onGenerateVideo={(id, idx) => addToast("Video Generation available in next update", "info")}
             onSelectOption={handleSelectOption} 

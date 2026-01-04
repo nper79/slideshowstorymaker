@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
-import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText, MicOff, GitBranch, GitMerge, ChevronDown, Sparkles } from 'lucide-react';
-import { StorySegment, AspectRatio, ImageSize, SegmentType } from '../types';
+import { Clapperboard, Play, Volume2, Grid, Camera, Loader2, Trash2, Film, Check, RefreshCw, X, Maximize2, MoreHorizontal, Download, Eye, FileText, MicOff, GitBranch, GitMerge, ChevronDown, Sparkles, Map } from 'lucide-react';
+import { StorySegment, AspectRatio, ImageSize, SegmentType, Setting } from '../types';
 import SlideshowPlayer from './SlideshowPlayer';
 // @ts-ignore
 import html2canvas from 'html2canvas';
@@ -9,7 +9,8 @@ import { createPortal } from 'react-dom';
 
 interface StoryboardProps {
   segments: StorySegment[];
-  onGenerateScene: (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize }) => void;
+  settings?: Setting[]; // Added settings prop to access authorized views
+  onGenerateScene: (segmentId: string, options: { aspectRatio: AspectRatio, imageSize: ImageSize, referenceViewUrl?: string }) => void;
   onGenerateVideo: (segmentId: string, imageIndex: number) => void;
   onPlayAudio: (segmentId: string, text: string) => Promise<void>;
   onStopAudio: () => void;
@@ -20,6 +21,7 @@ interface StoryboardProps {
 
 const Storyboard: React.FC<StoryboardProps> = ({ 
   segments, 
+  settings = [],
   onGenerateScene,
   onPlayAudio,
   onStopAudio,
@@ -31,6 +33,9 @@ const Storyboard: React.FC<StoryboardProps> = ({
   const [isTakingScreenshot, setIsTakingScreenshot] = useState(false);
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [generatingAudioId, setGeneratingAudioId] = useState<string | null>(null);
+  
+  // State for reference view selection in editor
+  const [selectedReferenceView, setSelectedReferenceView] = useState<string>('');
 
   const storyboardContentRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +74,7 @@ const Storyboard: React.FC<StoryboardProps> = ({
   };
 
   const editingSegment = segments.find(s => s.id === editingSegmentId);
+  const associatedSetting = editingSegment ? settings.find(s => s.id === editingSegment.settingId) : null;
 
   const handleAudioClick = async (id: string, text: string) => {
     setGeneratingAudioId(id);
@@ -282,11 +288,15 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                             )}
 
                                             {!editingSegment.isGenerating && (
-                                                 <div className="absolute bottom-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                                 <div className="absolute bottom-4 right-4 z-20 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300">
                                                     <button 
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 });
+                                                        onGenerateScene(editingSegment.id, { 
+                                                            aspectRatio: AspectRatio.MOBILE, 
+                                                            imageSize: ImageSize.K1,
+                                                            referenceViewUrl: selectedReferenceView || undefined 
+                                                        });
                                                     }}
                                                     className="flex items-center gap-2 bg-slate-900/90 hover:bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg border border-slate-700 hover:border-indigo-500 shadow-xl backdrop-blur-md transition-all transform hover:scale-105"
                                                     >
@@ -301,7 +311,11 @@ const Storyboard: React.FC<StoryboardProps> = ({
                                              <Film className="w-12 h-12 mb-4 opacity-20" />
                                              <p className="text-sm mb-4">Generate 4 distinct beats for this segment.</p>
                                              <button 
-                                                onClick={() => onGenerateScene(editingSegment.id, { aspectRatio: AspectRatio.MOBILE, imageSize: ImageSize.K1 })}
+                                                onClick={() => onGenerateScene(editingSegment.id, { 
+                                                    aspectRatio: AspectRatio.MOBILE, 
+                                                    imageSize: ImageSize.K1,
+                                                    referenceViewUrl: selectedReferenceView || undefined
+                                                })}
                                                 disabled={editingSegment.isGenerating}
                                                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                              >
@@ -316,6 +330,45 @@ const Storyboard: React.FC<StoryboardProps> = ({
 
                         <div className="space-y-6">
                             
+                            {/* NEW: Background Control Panel */}
+                            <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+                                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-4">
+                                    <Map className="w-4 h-4" />
+                                    Composition Control
+                                </h4>
+                                
+                                {associatedSetting && associatedSetting.authorizedViews && associatedSetting.authorizedViews.length > 0 ? (
+                                    <div className="space-y-3">
+                                        <label className="text-xs text-slate-400 block">Select Background Reference (Forces consistency):</label>
+                                        <select 
+                                            value={selectedReferenceView}
+                                            onChange={(e) => setSelectedReferenceView(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                                        >
+                                            <option value="">Creative Mode (AI Decides Angle)</option>
+                                            {associatedSetting.authorizedViews.map(view => (
+                                                <option key={view.id} value={view.imageUrl}>
+                                                    FORCE: {view.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        
+                                        {selectedReferenceView && (
+                                            <div className="relative h-24 w-full bg-black rounded-lg overflow-hidden border border-emerald-500/50">
+                                                <img src={selectedReferenceView} className="w-full h-full object-cover opacity-60" />
+                                                <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white uppercase bg-black/20">
+                                                    Reference Active
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-slate-500 italic">
+                                        No Master Asset Views generated for this setting yet. Go to 'Assets' tab to generate a Reference Sheet.
+                                    </p>
+                                )}
+                            </div>
+
                             {editingSegment.panels && editingSegment.panels.length > 0 && (
                                 <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
                                      <div className="flex items-center justify-between mb-4">

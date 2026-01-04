@@ -16,12 +16,22 @@ export interface Character {
   isGenerating?: boolean;
 }
 
+export interface AuthorizedView {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+}
+
 export interface Setting {
   id: string;
   name: string;
   description: string;
+  spatialLayout?: string; // Technical description of item placements
+  colorPalette?: string; // NEW: The abstract color vibe (e.g. "Warm amber wood, cool blue moonlight")
   visualPrompt: string;
-  imageUrl?: string;
+  imageUrl?: string; // This will now act as the "Master Grid"
+  authorizedViews?: AuthorizedView[]; // The sliced individual angles
   isGenerating?: boolean;
 }
 
@@ -33,11 +43,14 @@ export interface CinematicDNA {
   visualMood: string;
 }
 
+export type ShotType = 'ESTABLISHING' | 'CHARACTER' | 'ACTION' | 'DETAIL';
+
 export interface ManhwaPanel {
   panelIndex: number;
-  visualPrompt: string; // The instruction for the artist
-  caption: string; // The specific text overlay for this panel (can be empty)
+  visualPrompt: string; 
+  caption: string; 
   cameraAngle: string;
+  shotType?: ShotType; // NEW: Determines if we use the Blur Trick
 }
 
 export interface StructuredScene {
@@ -61,14 +74,12 @@ export enum SegmentType {
 
 export interface StorySegment {
   id: string;
-  text: string; // The full text of the segment
+  text: string; 
   settingId: string;
   characterIds: string[];
   
-  // New Manhwa Structure
   panels: ManhwaPanel[]; 
   
-  // Legacy/Helper fields
   scenePrompt?: string; 
   structuredScene?: StructuredScene;
   type: SegmentType;
