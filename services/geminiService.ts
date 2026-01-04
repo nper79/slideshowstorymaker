@@ -207,10 +207,10 @@ export const analyzeStoryText = async (storyText: string, artStyle: string): Pro
   
   **GOAL**: Adapt the provided text into a visual, interactive storyboard while STRICTLY PRESERVING the original story text.
 
-  ### 1. TEXT FIDELITY (CRITICAL)
+  ### 1. TEXT FIDELITY & CHUNKING (CRITICAL)
   - You MUST use the **exact sentences** from the source text for the 'MAIN' segments. 
   - Do NOT summarize or rewrite the main story. Break it down verbatim into chunks.
-  - You may write *new* text only for the 'BRANCH' segments (the cosmetic choices).
+  - **CHUNK RULE**: Every 'MAIN' segment MUST contain exactly **3 to 4 sentences** from the source text. No more, no less, unless it is the very last segment of the story.
 
   ### 2. INTERACTIVE BRANCHING (Tension Only)
   - Identify moments of **HIGH TENSION** or **SUSPENSE** in the story to insert a choice.

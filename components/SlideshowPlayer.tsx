@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Play, Maximize2, GitBranch, Volume2, ChevronRight } from 'lucide-react';
+import { X, Play, ChevronDown, Layout, CheckCircle, GitBranch, Volume2, VolumeX } from 'lucide-react';
 import { StorySegment } from '../types';
 
 interface SlideshowPlayerProps {
@@ -17,253 +17,249 @@ const SlideshowPlayer: React.FC<SlideshowPlayerProps> = ({
   onPlayAudio,
   onStopAudio
 }) => {
-  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
-  const [beatIndex, setBeatIndex] = useState(0); // 0 to 3
   const [hasStarted, setHasStarted] = useState(false);
-  const [isWaitingForChoice, setIsWaitingForChoice] = useState(false);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
+  const [activeBeatIndex, setActiveBeatIndex] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
   
+  const containerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPlayedSegmentId = useRef<string | null>(null);
 
-  const activeSegment = segments.find(s => s.id === activeSegmentId);
+  // Flatten segments and their panels into a single list for the "Seamless" vertical strip
+  const allPanels = useMemo(() => {
+    const panels: { segmentId: string; beatIndex: number; imageUrl: string; caption: string; isFirstBeat: boolean; segment: StorySegment }[] = [];
+    
+    segments.forEach((seg) => {
+        for (let i = 0; i < 4; i++) {
+            const img = (seg.generatedImageUrls && seg.generatedImageUrls[i]) || seg.masterGridImageUrl || '';
+            panels.push({
+                segmentId: seg.id,
+                beatIndex: i,
+                imageUrl: img,
+                caption: seg.panels?.[i]?.caption || (i === 3 ? seg.text : ""),
+                isFirstBeat: i === 0,
+                segment: seg
+            });
+        }
+    });
+    return panels;
+  }, [segments]);
 
-  // Start logic
-  const startStory = () => {
-    if (segments.length > 0) {
-        setActiveSegmentId(segments[0].id);
-        setBeatIndex(0);
-        setHasStarted(true);
+  // Handle free-scroll tracking to update HUD state (Captions/Audio)
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+
+    const container = containerRef.current;
+    const viewportMiddle = container.scrollTop + container.clientHeight / 2;
+    
+    // Find which panel is currently under the center of the screen
+    const panelElements = container.querySelectorAll('[data-panel-index]');
+    let currentPanelIdx = 0;
+    
+    panelElements.forEach((el, idx) => {
+        const htmlEl = el as HTMLElement;
+        const rectTop = htmlEl.offsetTop;
+        const rectBottom = rectTop + htmlEl.offsetHeight;
+        
+        if (viewportMiddle >= rectTop && viewportMiddle <= rectBottom) {
+            currentPanelIdx = idx;
+        }
+    });
+
+    const panel = allPanels[currentPanelIdx];
+
+    if (panel) {
+        setActiveSegmentId(panel.segmentId);
+        setActiveBeatIndex(panel.beatIndex);
+
+        // Trigger Audio for new segments as they cross into the middle
+        if (panel.isFirstBeat && lastPlayedSegmentId.current !== panel.segmentId && !isMuted) {
+            lastPlayedSegmentId.current = panel.segmentId;
+            if (panel.segment.audioUrl && audioRef.current) {
+                audioRef.current.src = panel.segment.audioUrl;
+                audioRef.current.play().catch(e => console.warn("Audio autoplay blocked"));
+            }
+        }
     }
   };
 
-  // Audio effect
-  useEffect(() => {
-      if (!hasStarted || !activeSegment || beatIndex !== 0) return;
-
-      const playSegmentAudio = async () => {
-          if (activeSegment.audioUrl) {
-              if (audioRef.current) {
-                  audioRef.current.src = activeSegment.audioUrl;
-                  try {
-                    await audioRef.current.play();
-                  } catch (e) {
-                    console.warn("Autoplay prevented", e);
-                  }
-              }
-          } else {
-              if (audioRef.current) {
-                  audioRef.current.pause();
-                  audioRef.current.src = "";
-              }
-          }
-      };
-      playSegmentAudio();
-  }, [activeSegmentId, beatIndex, hasStarted, activeSegment]);
-
-  // Timer logic
-  useEffect(() => {
-    if (!hasStarted || !activeSegment || isWaitingForChoice) {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        return;
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    if (audioRef.current) {
+        if (!isMuted) audioRef.current.pause();
+        else audioRef.current.play().catch(() => {});
     }
-
-    if (intervalRef.current) clearInterval(intervalRef.current);
-
-    // Determine duration based on text length of current beat
-    let duration = 3000;
-    
-    // Get current beat data to check text length
-    let currentCaption = "";
-    if (activeSegment.panels && activeSegment.panels[beatIndex]) {
-        currentCaption = activeSegment.panels[beatIndex].caption;
-    } else if (beatIndex === 0) {
-        currentCaption = activeSegment.text;
-    }
-
-    if (currentCaption) {
-        duration = Math.max(3000, currentCaption.length * 80);
-    } else {
-        duration = 2500; // Fast silent beat
-    }
-
-    intervalRef.current = setInterval(() => {
-        if (beatIndex < 3) {
-            setBeatIndex(prev => prev + 1);
-        } else {
-            // End of segment (after 4th beat)
-            // Check for Choices
-            if (activeSegment.choices && activeSegment.choices.length > 0) {
-                setIsWaitingForChoice(true);
-                if (audioRef.current) audioRef.current.pause(); // Stop audio when waiting
-            } else {
-                // Determine next segment
-                let nextId = activeSegment.nextSegmentId;
-                
-                // Fallback for linear if no ID
-                if (!nextId) {
-                    const currentIndex = segments.findIndex(s => s.id === activeSegment.id);
-                    if (currentIndex !== -1 && currentIndex < segments.length - 1) {
-                        nextId = segments[currentIndex + 1].id;
-                    }
-                }
-
-                if (nextId) {
-                    const nextSeg = segments.find(s => s.id === nextId);
-                    if (nextSeg) {
-                        setActiveSegmentId(nextId);
-                        setBeatIndex(0);
-                    } else {
-                        onStopAudio();
-                        onClose(); // End of story
-                    }
-                } else {
-                    onStopAudio();
-                    onClose(); // End of story
-                }
-            }
-        }
-    }, duration);
-
-    return () => {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [hasStarted, activeSegment, beatIndex, isWaitingForChoice, segments, onClose, onStopAudio]);
-
-
-  const handleChoiceClick = (targetId: string) => {
-      const targetSeg = segments.find(s => s.id === targetId);
-      if (targetSeg) {
-          setIsWaitingForChoice(false);
-          setActiveSegmentId(targetId);
-          setBeatIndex(0);
-      } else {
-          console.error("Target segment not found:", targetId);
-          // Fallback to close or error handling
-          onStopAudio();
-          onClose();
-      }
   };
 
   if (!hasStarted) {
-      return createPortal(
-        <div className="fixed inset-0 z-[10000] bg-black text-white flex flex-col items-center justify-center p-6 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop')] bg-cover bg-center">
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm" />
-            <div className="relative z-10 flex flex-col items-center animate-fade-in">
-                <button onClick={startStory} className="w-24 h-24 flex items-center justify-center bg-emerald-600 rounded-full hover:scale-110 transition-transform shadow-2xl mb-8 ring-4 ring-emerald-500/30 group">
-                    <Play className="w-10 h-10 fill-current ml-1 group-hover:text-white" />
-                </button>
-                <h2 className="text-3xl font-bold mb-2 text-white font-serif italic">Start Experience</h2>
-                <p className="text-slate-400 text-sm tracking-widest uppercase">Interactive Manhwa Mode</p>
-                <button onClick={onClose} className="mt-12 text-slate-500 hover:text-white transition-colors flex items-center gap-2 text-sm">
-                    <X className="w-4 h-4" /> Cancel
-                </button>
-            </div>
-        </div>,
-        document.body
-      );
+    return createPortal(
+      <div className="fixed inset-0 z-[10000] bg-[#020617] text-white flex flex-col items-center justify-center p-6">
+          <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent" />
+          <div className="relative z-10 flex flex-col items-center text-center max-w-sm">
+              <div className="w-24 h-24 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center shadow-[0_0_80px_rgba(79,70,229,0.3)] mb-10 transform rotate-6 hover:rotate-0 transition-transform duration-500">
+                  <Play className="w-10 h-10 fill-current ml-1" />
+              </div>
+              <h2 className="text-4xl font-black mb-4 tracking-tighter uppercase italic">Webtoon strip</h2>
+              <p className="text-slate-400 text-sm leading-relaxed mb-12 font-medium px-4">
+                Free-scroll mode. Stop anywhere, pan at your own pace. The story flows continuously as you glide down.
+              </p>
+              <button 
+                onClick={() => setHasStarted(true)}
+                className="w-full bg-white text-black font-black py-5 rounded-2xl hover:bg-indigo-500 hover:text-white transition-all transform active:scale-95 shadow-[0_20px_40px_rgba(255,255,255,0.1)] uppercase tracking-widest text-sm"
+              >
+                  Begin Journey
+              </button>
+          </div>
+      </div>, document.body
+    );
   }
 
-  if (!activeSegment) return null;
-
-  // Determine current image
-  let currentImageUrl: string | undefined = undefined;
-  if (activeSegment.generatedImageUrls && activeSegment.generatedImageUrls[beatIndex]) {
-      currentImageUrl = activeSegment.generatedImageUrls[beatIndex];
-  } else if (activeSegment.masterGridImageUrl) {
-      currentImageUrl = activeSegment.masterGridImageUrl; // Fallback to full grid if crop missing
-  }
-
-  // Determine current caption
-  let currentCaption = "";
-  if (activeSegment.panels && activeSegment.panels[beatIndex]) {
-      currentCaption = activeSegment.panels[beatIndex].caption;
-  } else if (beatIndex === 0) {
-      currentCaption = activeSegment.text;
-  }
+  const currentPanelData = allPanels.find(p => p.segmentId === activeSegmentId && p.beatIndex === activeBeatIndex) || allPanels[0];
+  const activeSeg = segments.find(s => s.id === activeSegmentId);
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] bg-black text-white flex flex-col overflow-hidden font-sans">
+    <div className="fixed inset-0 z-[10000] bg-black text-white flex flex-col overflow-hidden">
       <audio ref={audioRef} className="hidden" />
 
-      {/* Main Visual Layer */}
-      <div className="absolute inset-0 flex items-center justify-center bg-black">
-         <div className="relative w-full h-full max-w-lg mx-auto flex items-center justify-center bg-zinc-900 overflow-hidden shadow-2xl">
-            {currentImageUrl ? (
-                <img 
-                  key={`${activeSegment.id}-${beatIndex}`} 
-                  src={currentImageUrl} 
-                  className={`w-full h-full object-cover ${isWaitingForChoice ? 'blur-sm scale-105' : 'animate-ken-burns'}`}
-                  style={{ transition: 'filter 0.5s ease' }}
-                  alt="Manhwa Panel" 
-                />
-            ) : (
-                <div className="text-center p-10 opacity-50 flex flex-col items-center">
-                    <div className="w-16 h-16 border-4 border-slate-700 border-t-slate-500 rounded-full animate-spin mb-4" />
-                    <p className="mb-4 font-mono text-sm">Generating Scene Visuals...</p>
-                </div>
-            )}
-            
-            {/* Cinematic Vignette */}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none" />
-         </div>
-      </div>
-
-      {/* Choice Overlay */}
-      {isWaitingForChoice && (
-          <div className="absolute inset-0 z-[200] flex flex-col items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-fade-in">
-               <div className="max-w-md w-full space-y-4">
-                   <h3 className="text-center text-2xl font-bold text-white mb-8 font-serif drop-shadow-lg flex items-center justify-center gap-3">
-                        <GitBranch className="w-6 h-6 text-emerald-400" />
-                        Make Your Choice
-                   </h3>
-                   {activeSegment.choices?.map((choice, idx) => (
-                       <button
-                          key={idx}
-                          onClick={() => handleChoiceClick(choice.targetSegmentId)}
-                          className="w-full bg-slate-900/90 hover:bg-emerald-600 border border-emerald-500/30 hover:border-emerald-400 text-white p-6 rounded-xl transition-all transform hover:scale-105 shadow-2xl flex items-center justify-between group"
-                       >
-                           <span className="font-bold text-lg">{choice.text}</span>
-                           <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors" />
-                       </button>
-                   ))}
+      {/* Persistent Overlay HUD */}
+      <div className="absolute top-0 left-0 right-0 z-50 p-6 flex justify-between items-start bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none">
+          <div className="flex items-center gap-4 pointer-events-auto">
+               <button 
+                onClick={() => { onStopAudio(); onClose(); }}
+                className="w-12 h-12 bg-white/10 hover:bg-white/20 backdrop-blur-xl rounded-2xl border border-white/10 flex items-center justify-center transition-all group"
+               >
+                    <X className="w-6 h-6 group-hover:scale-110 transition-transform" />
+               </button>
+               <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-xl border border-white/5">
+                   <h3 className="text-[10px] font-black tracking-[0.4em] uppercase text-indigo-400 mb-0.5">Strip Reader</h3>
+                   <div className="flex gap-1">
+                        {segments.map((s) => (
+                            <div key={s.id} className={`h-1 rounded-full transition-all duration-300 ${s.id === activeSegmentId ? 'w-4 bg-indigo-500' : 'w-1 bg-white/20'}`} />
+                        ))}
+                   </div>
                </div>
           </div>
-      )}
 
-      {/* Controls / Header */}
-      <div className="absolute top-0 left-0 right-0 p-6 z-[90] flex justify-between items-center pointer-events-none">
-          <div className="flex gap-2">
-             {/* Progress dots for beats */}
-             {[0,1,2,3].map(i => (
-                 <div key={i} className={`h-1 rounded-full transition-all duration-300 ${i === beatIndex ? 'w-8 bg-emerald-500' : 'w-2 bg-white/20'}`} />
-             ))}
-          </div>
-          <button onClick={() => { onStopAudio(); onClose(); }} className="pointer-events-auto p-3 bg-black/20 hover:bg-red-600/80 rounded-full transition-colors border border-white/10 backdrop-blur-md">
-              <X className="w-5 h-5" />
+          <button 
+            onClick={toggleMute}
+            className="pointer-events-auto w-12 h-12 bg-white/10 hover:bg-white/20 backdrop-blur-xl rounded-2xl border border-white/10 flex items-center justify-center transition-all"
+          >
+              {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
           </button>
       </div>
 
-      {/* Caption Area */}
-      {!isWaitingForChoice && (
-          <div className="absolute bottom-12 left-0 right-0 px-6 z-[70] flex justify-center pointer-events-none">
-              <div className={`max-w-xl text-center transition-all duration-500 transform ${currentCaption ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-                  {currentCaption && (
-                      <div className="bg-slate-950/80 backdrop-blur-md px-8 py-6 rounded-2xl border border-white/10 shadow-2xl">
-                        <p className="text-lg md:text-xl font-serif text-slate-100 leading-relaxed drop-shadow-md">
-                            "{currentCaption}"
-                        </p>
-                      </div>
-                  )}
-              </div>
-          </div>
-      )}
-      
-      {/* Global Progress Line (Optional, maybe just beat indicators is enough for Manhwa style) */}
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/5">
-        {/* Can add total progress here if needed */}
+      {/* The Infinite FREE-SCROLL Vertical Strip */}
+      <div 
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto scroll-smooth custom-scrollbar-hidden bg-[#050505]"
+      >
+        <div className="flex flex-col w-full max-w-lg mx-auto bg-black pb-[50vh]">
+            {allPanels.map((panel, idx) => (
+                <div 
+                    key={`${panel.segmentId}-${panel.beatIndex}`}
+                    data-panel-index={idx}
+                    className="relative w-full aspect-[9/16] bg-black overflow-hidden flex flex-col justify-center"
+                >
+                    {panel.imageUrl ? (
+                        <img 
+                            src={panel.imageUrl} 
+                            className="w-full h-full object-cover select-none" 
+                            alt={`Panel ${idx}`}
+                            loading={idx < 4 ? "eager" : "lazy"}
+                        />
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-6 bg-zinc-950">
+                             <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+                             <span className="text-[10px] font-black tracking-[0.5em] text-indigo-400 uppercase animate-pulse">Rendering beat {idx + 1}</span>
+                        </div>
+                    )}
+                    
+                    {/* Subtle panel shadow to define separation without hard borders */}
+                    <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+                </div>
+            ))}
+            
+            {/* End of Journey UI */}
+            <div className="py-32 flex flex-col items-center justify-center p-12 text-center bg-gradient-to-b from-transparent to-indigo-950/20">
+                 <div className="w-20 h-20 bg-indigo-600/10 rounded-full flex items-center justify-center mb-8 border border-indigo-500/20">
+                    <CheckCircle className="w-10 h-10 text-emerald-500" />
+                 </div>
+                 <h4 className="text-3xl font-black mb-4 uppercase tracking-tighter italic">End of the line</h4>
+                 <p className="text-slate-500 text-sm mb-12 font-medium max-w-xs leading-relaxed">The strip ends here. Your story continues in the editor.</p>
+                 <button 
+                    onClick={onClose} 
+                    className="px-12 py-4 bg-white text-black rounded-2xl font-black uppercase tracking-widest text-xs hover:scale-105 transition-transform"
+                >
+                    Close Strip
+                </button>
+            </div>
+        </div>
       </div>
-    </div>,
-    document.body
+
+      {/* Floating Interactive Narrator Layer */}
+      <div className="absolute bottom-0 left-0 right-0 z-40 pointer-events-none flex flex-col items-center pb-12 px-6">
+          
+          {/* Dynamic Floating Caption */}
+          {currentPanelData.caption && (
+              <div className="w-full max-w-md bg-black/80 backdrop-blur-2xl border border-white/10 px-10 py-8 rounded-[2.5rem] shadow-[0_30px_60px_rgba(0,0,0,0.8)] animate-slide-up pointer-events-auto border-b-indigo-500/50">
+                   <p className="text-xl md:text-2xl font-serif text-white leading-relaxed text-center italic font-medium">
+                        "{currentPanelData.caption}"
+                   </p>
+              </div>
+          )}
+          
+          {/* Choice Gate: If the current panel has choices, show them floating above */}
+          {activeBeatIndex === 3 && activeSeg?.choices && activeSeg.choices.length > 0 && (
+              <div className="w-full max-w-md mt-6 animate-fade-in pointer-events-auto">
+                   <div className="bg-slate-900/95 backdrop-blur-3xl border border-indigo-500/30 rounded-[2rem] p-6 shadow-2xl">
+                        <div className="flex items-center gap-2 mb-6 opacity-60">
+                             <GitBranch className="w-4 h-4 text-indigo-400" />
+                             <span className="text-[10px] font-black tracking-widest uppercase">Path Selection</span>
+                        </div>
+                        <div className="space-y-3">
+                            {activeSeg.choices.map((choice, i) => (
+                                <button 
+                                    key={i}
+                                    onClick={() => {
+                                        const targetIndex = allPanels.findIndex(p => p.segmentId === choice.targetSegmentId);
+                                        if (targetIndex !== -1 && containerRef.current) {
+                                            containerRef.current.scrollTo({
+                                                top: targetIndex * containerRef.current.querySelectorAll('[data-panel-index]')[0].clientHeight,
+                                                behavior: 'smooth'
+                                            });
+                                        }
+                                    }}
+                                    className="w-full text-left p-5 bg-white/5 hover:bg-white text-white hover:text-black rounded-2xl border border-white/10 transition-all font-bold text-sm flex justify-between items-center group"
+                                >
+                                    {choice.text}
+                                    <ChevronDown className="w-4 h-4 -rotate-90 opacity-0 group-hover:opacity-100 transition-all" />
+                                </button>
+                            ))}
+                        </div>
+                   </div>
+              </div>
+          )}
+      </div>
+
+      <style>{`
+        .custom-scrollbar-hidden::-webkit-scrollbar {
+          display: none;
+        }
+        .custom-scrollbar-hidden {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        @keyframes slide-up {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-up {
+          animation: slide-up 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+      `}</style>
+    </div>, document.body
   );
 };
 
