@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Users, Map, RefreshCw, Wand2, Grid, CheckCircle2 } from 'lucide-react';
+import { Users, Map, RefreshCw, Wand2, Grid, CheckCircle2, Upload, Image as ImageIcon } from 'lucide-react';
 import { Character, Setting } from '../types';
 
 interface AssetGalleryProps {
@@ -8,14 +8,26 @@ interface AssetGalleryProps {
   settings: Setting[];
   onGenerateCharacter: (id: string) => void;
   onGenerateSetting: (id: string) => void;
+  onUploadAsset: (type: 'character' | 'setting', id: string, file: File) => void;
 }
 
 const AssetGallery: React.FC<AssetGalleryProps> = ({ 
   characters, 
   settings, 
   onGenerateCharacter, 
-  onGenerateSetting 
+  onGenerateSetting,
+  onUploadAsset
 }) => {
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'character' | 'setting', id: string) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        onUploadAsset(type, id, file);
+    }
+    // Reset input value so same file can be selected again if needed
+    e.target.value = '';
+  };
+
   return (
     <div className="space-y-12">
       {/* Characters Section */}
@@ -31,7 +43,7 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
           {characters.map(char => (
             <div key={char.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 group hover:border-pink-500/50 transition-all flex flex-col md:flex-row">
               {/* Image Section */}
-              <div className="md:w-2/3 aspect-video bg-slate-900 relative border-r border-slate-700">
+              <div className="md:w-2/3 aspect-video bg-slate-900 relative border-r border-slate-700 group-image">
                 {char.imageUrl ? (
                   <img src={char.imageUrl} alt={char.name} className="w-full h-full object-cover" />
                 ) : (
@@ -58,14 +70,33 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
                   <p className="text-xs text-slate-400 line-clamp-6 leading-relaxed">{char.description}</p>
                 </div>
 
-                <button
-                  onClick={() => onGenerateCharacter(char.id)}
-                  disabled={char.isGenerating}
-                  className="w-full mt-4 py-2 bg-slate-700 hover:bg-pink-600 text-white text-xs font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  {char.imageUrl ? <RefreshCw className="w-3 h-3" /> : <Wand2 className="w-3 h-3" />}
-                  {char.imageUrl ? 'Regenerate Sheet' : 'Generate Sheet'}
-                </button>
+                <div className="flex flex-col gap-2 mt-4">
+                    <button
+                      onClick={() => onGenerateCharacter(char.id)}
+                      disabled={char.isGenerating}
+                      className="w-full py-2 bg-slate-700 hover:bg-pink-600 text-white text-xs font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      {char.imageUrl ? <RefreshCw className="w-3 h-3" /> : <Wand2 className="w-3 h-3" />}
+                      {char.imageUrl ? 'Regenerate' : 'Generate'}
+                    </button>
+                    
+                    <div className="relative">
+                        <input 
+                            type="file" 
+                            id={`upload-char-${char.id}`} 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={(e) => handleFileChange(e, 'character', char.id)}
+                        />
+                        <label 
+                            htmlFor={`upload-char-${char.id}`}
+                            className="w-full py-2 bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                        >
+                            <Upload className="w-3 h-3" />
+                            Upload Image
+                        </label>
+                    </div>
+                </div>
               </div>
             </div>
           ))}
@@ -84,7 +115,7 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
           {settings.map(setting => (
             <div key={setting.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 group hover:border-emerald-500/50 transition-all flex flex-col">
               {/* Changed to aspect-square to show the 2x2 grid nicely */}
-              <div className="aspect-square bg-slate-900 relative">
+              <div className="aspect-square bg-slate-900 relative group-image">
                  {setting.imageUrl ? (
                   <img src={setting.imageUrl} alt={setting.name} className="w-full h-full object-cover" />
                 ) : (
@@ -121,14 +152,33 @@ const AssetGallery: React.FC<AssetGalleryProps> = ({
                   )}
                 </div>
 
-                <button
-                  onClick={() => onGenerateSetting(setting.id)}
-                  disabled={setting.isGenerating}
-                  className="w-full py-2 bg-slate-700 hover:bg-emerald-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  {setting.imageUrl ? <RefreshCw className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
-                  {setting.imageUrl ? 'Regenerate Reference Sheet' : 'Generate Reference Sheet'}
-                </button>
+                <div className="flex flex-col gap-2 mt-2">
+                    <button
+                      onClick={() => onGenerateSetting(setting.id)}
+                      disabled={setting.isGenerating}
+                      className="w-full py-2 bg-slate-700 hover:bg-emerald-600 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      {setting.imageUrl ? <RefreshCw className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
+                      {setting.imageUrl ? 'Regenerate Ref' : 'Generate Ref'}
+                    </button>
+                    
+                    <div className="relative">
+                        <input 
+                            type="file" 
+                            id={`upload-setting-${setting.id}`} 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={(e) => handleFileChange(e, 'setting', setting.id)}
+                        />
+                        <label 
+                            htmlFor={`upload-setting-${setting.id}`}
+                            className="w-full py-2 bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                        >
+                            <Upload className="w-3 h-3" />
+                            Upload Image
+                        </label>
+                    </div>
+                </div>
               </div>
             </div>
           ))}

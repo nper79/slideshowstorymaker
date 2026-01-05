@@ -91,6 +91,40 @@ export default function App() {
     }
   };
 
+  const handleUploadAsset = (type: 'character' | 'setting', id: string, file: File) => {
+    if (!storyData) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        addToast("Please upload a valid image file", "error");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const result = e.target?.result as string;
+        if (result) {
+            setStoryData(prev => {
+                if (!prev) return null;
+                if (type === 'character') {
+                    return {
+                        ...prev,
+                        characters: prev.characters.map(c => c.id === id ? { ...c, imageUrl: result } : c)
+                    };
+                } else {
+                    return {
+                        ...prev,
+                        settings: prev.settings.map(s => s.id === id ? { ...s, imageUrl: result } : s)
+                    };
+                }
+            });
+            addToast("Asset uploaded successfully", "success");
+        }
+    };
+    reader.onerror = () => addToast("Failed to read file", "error");
+    reader.readAsDataURL(file);
+  };
+
   const handleGenerateCharacter = async (id: string) => {
     if (!storyData) return;
     setStoryData(prev => prev ? ({ ...prev, characters: prev.characters.map(c => c.id === id ? { ...c, isGenerating: true } : c) }) : null);
@@ -430,7 +464,13 @@ export default function App() {
         )}
 
         {activeTab === Tab.INPUT && <StoryInput onAnalyze={handleAnalyzeStory} status={status} selectedVoice={selectedVoice} onVoiceChange={setSelectedVoice} />}
-        {activeTab === Tab.ASSETS && storyData && <AssetGallery characters={storyData.characters} settings={storyData.settings} onGenerateCharacter={handleGenerateCharacter} onGenerateSetting={handleGenerateSetting} />}
+        {activeTab === Tab.ASSETS && storyData && <AssetGallery 
+            characters={storyData.characters} 
+            settings={storyData.settings} 
+            onGenerateCharacter={handleGenerateCharacter} 
+            onGenerateSetting={handleGenerateSetting}
+            onUploadAsset={handleUploadAsset} 
+        />}
         {activeTab === Tab.STORYBOARD && storyData && <Storyboard 
             segments={storyData.segments} 
             settings={storyData.settings} // Pass settings for dropdown
